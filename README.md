@@ -16,3 +16,8 @@ There are three main steps as shown in the manuscript: 1. build the isotropic at
 In `main.py`, the option flags include `-c` and `-s`. The -c controls the config ID that corresponds to different experiments and -s represents different steps.
 
 For `-s`, `prepare_inr` represents step 1 (build the isotropic atlas), `preprocess` represents the preparation of step 2 (the training process is handled by nnU-Net, not here), and `test` represents the model inference.
+
+## Test
+This step contains more details then the other two because we suppose the test data is not preprocessed. We need to 1. register whole brain T1w and T2w images; 2. locate the left and right MTL ROIs using ASHS template and deformable registration; 3. crop the MTL patches using extracted ROIs; 4. upsample the patches to isotropic space; 5. register local patches to fix tiny misalignment; 6. run the inference of trained nnU-Net
+
+The input path of this step is set by variable `TEST_PATH` in test config in `config_test`. The folder should have three levels: 1. participant anonymous ID； 2. scanning date (one participant can have more than one scan); 3. T1w and T2w MR images with file names `t1_img.nii.gz` and `t2_img.nii.gz`
