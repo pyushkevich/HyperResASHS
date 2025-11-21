@@ -1,0 +1,28 @@
+# original file names
+primary: 'primary.nii.gz'
+secondary: 'secondary.nii.gz'
+seg: 'seg.nii.gz'
+
+# hyper file names
+hyper_primary: 'hyper_primary.nii.gz'
+hyper_secondary: 'hyper_secondary.nii.gz'
+hyper_primary_seg: 'hyper_primary_seg.nii.gz'
+
+# mm registration
+auxiluary_to_primary_matrix: 'auxiluary_to_primary.mat'
+auxiluary_to_primary_registered: 'auxiluary_to_primary_registered.nii.gz'
+
+# INR names
+inr_primary: 'primary.nii.gz'
+inr_secondary: 'secondary.nii.gz'
+inr_primary_seg: 'primary_seg.nii.gz'
+
+inr_hyper_primary_seg: 'inr_hyper_primary_seg.nii.gz'
+inr_hyper_primary_img: 'inr_hyper_primary_img.nii.gz'
+inr_to_linear_reg_matrix: 'matrix_inr_to_linear.mat'
+inr_hyper_primary_img_shift_corrected: 'inr_hyper_primary_img_shift_corrected.nii.gz'
+
+# INR folder names
+INR_PREPROCESSING: 'preprocess'  # pre-registration and so on
+INR_PRELIMINARY_PATH: 'training_preparation'  # INR Preparation
+INR_UPSAMPLING_PATH: 'training_output'  # INR Training

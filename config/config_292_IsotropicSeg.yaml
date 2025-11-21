@@ -1,0 +1,27 @@
+
+# global configure
+EXP_NUM: 292
+MODEL_NAME: 'IsotropiSeg'
+TRAINER: 'ModAugUNetTrainer'
+CONDITION: 'in_vivo'
+
+# preprocessing configure
+PREPARE_RAW_PATH: '/home/user/data/Data/seg_project/preparation'
+PRIMARY_ASHS_PATH: '/home/user/data/Data/seg_project/source_dataset/3T_T2/train'  # 3T-T2w ASHS atlas
+SECOND_ASHS_PATH: '/home/user/data/Data/seg_project/source_dataset/3T_T1/train'  # 3T-T1w ASHS atlas
+SNAP_LABEL_PATH: '/home/user/data/Data/seg_project/source_dataset/3T_T2/snap/snaplabels.txt'
+CV_FILE: '/home/user/data/Data/seg_project/preparation/split/five_fold.json'  # the file to define cross-validation
+
+# Upsampling
+UPSAMPLING_METHOD: 'INRUpsampling'  # options: None, INRUpsampling, GreedyUpsampling
+
+# INR
+INR_PATH: '/home/user/data/Data/seg_project/upsample_network/inr_upsampling2'  # the path that saves the results of INR
+INR_CORRECTION_PARAM: 'affine'  # options: 'None', 'rigid', 'affine'
+
+# nnU-Net
+NNUNET_RAW_PATH: '/home/user/data/Data/nnUNet_raw_data_base/nnUNet_raw_data'  # nnU-Net's raw data
+NNUNET_PREPROSSOR: 'DefaultPreprocessor'  # preprocessor for nnUNet plan
+
+# file or folder name config file
+FILE_NAME_CONFIG: 'config/global_000_finenames.yaml'
