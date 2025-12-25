@@ -13,162 +13,82 @@ This project addresses the challenge of segmenting MTL subregions from anisotrop
 
 The pipeline handles the entire workflow from raw multi-modality MRI images to final segmentation results, including registration, ROI extraction, upsampling, and model inference.
 
-## Installation
+## Pipeline Details
 
-### Prerequisites
+The pipeline consists of five main steps:
 
-- Python 3.10+
-- CUDA-capable GPU (recommended)
-- Modified nnU-Net (to be added as submodule)
-- Modified Implicit Neural Representation (to be added as submodule)
+### Step 1: Preprocessing (`stage = preprocess`)
 
-### Dependencies
+Run preprocessing to create the experiment folder by copying images and segmentations from the two atlas folders (T1w and T2w ASHS atlases). 
 
-TBD
+- If the upsampling method is **not INR** (e.g., `GreedyUpsampling` or `None`), the preprocessing will complete all steps including upsampling, registration, and nnU-Net dataset preparation.
+- If the upsampling method is **INR**, the preprocessing will only prepare the patch data and stop, waiting for the user to complete INR upsampling (proceed to Step 2).
 
-### Submodules
+**Note**: After INR upsampling is completed (Step 2), you need to **run Step 1 again** (`stage = preprocess`) to complete the remaining preprocessing steps. This second run becomes Step 3.
 
-This project requires the following submodules:
+### Step 2: INR Upsampling (`stage = prepare_inr`)
 
-- **Modified Implicit Neural Representation (INR)**: Required for the `prepare_inr` stage output processing and when using `INRUpsampling` method in `preprocess` and `test` stages.
-- **Modified nnU-Net**: Required for the `preprocess` stage (training data preparation) and the `test` stage (model inference).
+Use INR to upsample the atlas segmentation. This step requires the copied images and folders from Step 1 as input. The `prepare_inr` stage will:
+- Prepare the data in the format expected by the INR submodule
+- Generate INR configuration files for each case
+- Create a shell script `scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh` with paths automatically filled from your config
 
-**Note**: The `prepare_inr` stage does not require the INR submodule to be installed, as it only prepares the input data for the INR submodule.
+**Folder structure created:**
 
-### Setup
+The `prepare_inr` stage creates the following folder structure under `{INR_PATH}/{EXP_NUM}{MODEL_NAME}/`:
+- `preprocess/`: Contains case folders with input data and config files for INR
+- `training_preparation/`: Contains case folders with prepared data ready for INR training
+- `training_output/`: Will contain INR training outputs (created after INR training completes)
 
-TBD
+**To run INR upsampling:**
 
+1. **Update the INR repository path** in the generated script:
+   ```bash
+   # Edit scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
+   # For example: scripts/run_inr_upsampling_292IsotropiSeg.sh
+   # Update INR_REPO_PATH to point to your INR repository
+   INR_REPO_PATH="/path/to/multi_contrast_inr"
+   ```
 
+2. **Run the generated script**:
+   ```bash
+   ./scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
+   # For example: ./scripts/run_inr_upsampling_292IsotropiSeg.sh
+   ```
 
-## Usage
+   The script will automatically:
+   - Find all cases in the `training_preparation` folder (created in Step 2)
+   - Run INR training for each case using the generated config files from the `preprocess` folder
+   - Process cases in batches (default: start=0, count=60, can be modified in the script)
 
-The main pipeline is controlled through `main.py` with command-line arguments:
+**Note**: The script uses the INR repository's `main.py` to train each case. Make sure the INR repository is properly set up and accessible.
 
-```bash
-python main.py -c <config_id> -s <stage>
-```
+### Step 3: Complete Preprocessing (`stage = preprocess` - second run)
 
-### Arguments
+After INR upsampling is finished, **run Step 1 again** (`stage = preprocess`). This time, since the INR output exists, the preprocessing will complete all remaining steps:
+- Copy INR upsampled results
+- Register secondary modality (T1w) to primary (T2w)
+- Prepare nnU-Net dataset
+- Remove outer segmentation artifacts
+- Convert labels to continuous format
+- Create cross-validation splits
+- Run nnU-Net experiment planning
 
-- `-c, --config_id`: Configuration ID that corresponds to different experiments
-- `-s, --stage`: Pipeline stage to execute. Options: `prepare_inr`, `preprocess`, `test` (see Stages below)
+### Step 4: nnU-Net Training
 
-### Pipeline Stages
+Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. However, **nnU-Net training must be run manually**. 
 
-#### 1. `prepare_inr` - Build Isotropic Atlas
+**Note**: When running nnU-Net training, ensure that the trainer matches the `TRAINER` specified in your configuration file.
 
-This stage prepares the input data for the Implicit Neural Representation (INR) submodule to create an isotropic atlas.
+### Step 5: Testing (`stage = test`)
 
-```bash
-python main.py -c 292 -s prepare_inr
-```
-
-#### 2. `preprocess` - Training Data Preparation
-
-Prepares training data for nnU-Net by:
-- Extracting MTL patches from ASHS atlas data
-- Upsampling to isotropic resolution
-- Registering multi-modality images
-- Formatting data for nnU-Net training
-
-```bash
-python main.py -c 292 -s preprocess
-```
-
-**Atlas Data Structure**:
-
-TBD
-
-#### 3. `test` - Model Inference
-
-Runs inference on test data with automatic preprocessing:
+When processing test data, run the test stage. This stage performs:
 - Whole-brain registration (T1w to T2w)
 - ROI extraction using ASHS template
 - Patch cropping and upsampling
 - Local registration for fine alignment
-- nnU-Net inference
-
-```bash
-python main.py -c 2921 -s test
-```
-
-**Test Data Structure**:
-
-Test data should be organized as follows:
-
-```
-TEST_PATH/
-├── participant_id_1/
-│   ├── scan_date_1/
-│   │   ├── t1_img.nii.gz
-│   │   └── t2_img.nii.gz
-│   └── scan_date_2/
-│       ├── t1_img.nii.gz
-│       └── t2_img.nii.gz
-└── participant_id_2/
-    └── ...
-```
-
-## Configuration
-
-Configuration files are located in `config/` (for training) and `config_test/` (for testing).
-
-### Training Configuration
-
-Example: `config/config_292_IsotropicSeg.yaml`
-
-Key parameters:
-- `EXP_NUM`: Experiment number
-- `MODEL_NAME`: Model identifier
-- `UPSAMPLING_METHOD`: One of `'INRUpsampling'`, `'GreedyUpsampling'`, or `'None'`
-- `PRIMARY_ASHS_PATH`: Path to 3T-T2w ASHS atlas
-- `SECOND_ASHS_PATH`: Path to 3T-T1w ASHS atlas
-- `NNUNET_RAW_PATH`: Path to nnU-Net raw data directory
-
-### Test Configuration
-
-Example: `config_test/configtest_2921_IsotropicSeg.yaml`
-
-Key parameters:
-- `TEST_PATH`: Root path to test data
-- `TEMPLATE_PATH`: Path to ASHS template
-- `NECK_SHELL`: Path to neck trimming shell script
-
-## Pipeline Details
-
-### Training Pipeline (`preprocess`)
-
-1. **Patch Extraction**: Extracts left/right MTL patches from ASHS atlas data
-2. **Upsampling**: Converts anisotropic patches to isotropic resolution using selected method
-3. **Registration**: Registers secondary modality (T1w) to primary (T2w)
-4. **Data Formatting**: 
-   - Flips right-side images for consistency
-   - Removes outer segmentation artifacts
-   - Converts labels to continuous format
-   - Creates cross-validation splits
-5. **nnU-Net Preparation**: Runs nnU-Net experiment planning and preprocessing
-
-### Inference Pipeline (`test`)
-
-1. **Global Registration**: Registers whole-brain T1w to T2w images
-2. **ROI Extraction**: 
-   - Trims neck from T1w image
-   - Performs rigid, affine, and deformable registration to ASHS template
-   - Extracts left and right MTL ROIs
-3. **Patch Cropping**: Crops MTL patches from both modalities using extracted ROIs
-4. **Upsampling**: Converts patches to isotropic space
-5. **Local Registration**: Fine-tunes alignment between modalities
-6. **Inference**: Runs trained nnU-Net model for segmentation
-7. **Output**: Saves segmentation results and processing time
-
-## Upsampling Methods
-
-The pipeline supports three upsampling methods:
-
-- **INRUpsampling**: Uses Implicit Neural Representation for high-quality upsampling (recommended)
-- **GreedyUpsampling**: Uses Greedy-based method for segmentation upsampling
-- **None**: No upsampling (uses original resolution)
+- nnU-Net inference for segmentation
+- Output of segmentation results
 
 ## Citation
 
@@ -184,18 +104,6 @@ If you use this code in your research, please cite our paper:
 }
 ```
 
-## License
-
-[Specify your license here]
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Issues
-
-If you encounter any problems or have questions, please open an issue on GitHub.
-
 ## Changelog
 
 ### 12/22/2025
@@ -208,12 +116,6 @@ If you encounter any problems or have questions, please open an issue on GitHub.
 ### 10/27/2025
 - Initial release of isotropic segmentation pipeline for MTL subregions
 - Support for 3T-T2w and 3T-T1w multi-modality MRI
-
-## Acknowledgments
-
-- ASHS (Automatic Segmentation of Hippocampal Subfields) for template and atlas
-- nnU-Net framework for segmentation
-- PICSL tools for image processing
 
 ## Contact
 
