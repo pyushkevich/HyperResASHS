@@ -170,11 +170,9 @@ class ModelTester():
             secondary_target = join(side_path, self.nm.secondary)
             c3d = Convert3D()
             c3d.execute(f'{primary_file} -swapdim RPI -o {primary_target}')
-            # os.system('c3d {} -swapdim RPI -o {}'.format(primary_file, primary_target))
 
             c3d = Convert3D()
             c3d.execute(f'{secondary_file} -swapdim RPI -o {secondary_target}')
-            # os.system('c3d {} -swapdim RPI -o {}'.format(secondary_file, secondary_target))
             primary_upsampled = join(side_path, self.nm.hyper_primary)
             secondary_upsampled = join(side_path, self.nm.hyper_secondary)
             
