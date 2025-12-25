@@ -1,0 +1,63 @@
+SETTINGS:
+  DIRECTORY: ''  # Will be set per case in make_config()
+  PROJECT_NAME: NeRF_PMC
+  GPU_DEVICE: 0
+  NUM_WORKERS: 16
+  SAVE_PATH: ''  # Will be set per case in make_config()
+
+DATASET:
+  SUBJECT_ID: ''  # Will be set per case in make_config()
+  LR_CONTRAST1: t1_LR
+  LR_CONTRAST2: t2_LR
+  DATASET_CLASS: MultiModalMultiSegDataset
+  USED_SEG_TYPE: t2_only
+
+TRAINING:
+  SEED: 12
+  BATCH_SIZE: 1000
+  LR: 0.0004
+  EPOCHS: 60  # Will be overridden in make_config() but kept as default
+  OPTIM: Adam
+  SHUFFELING: true
+  CONTRAST1_ONLY: false
+  CONTRAST2_ONLY: false
+  LOSS: MSELoss
+  LOSS_MSE_C1: 1.0
+  LOSS_MSE_C2: 1.0
+  USE_MI: false
+  USE_NMI: false
+  USE_CC: false
+
+MODEL:
+  USE_TWO_HEADS: true
+  NUM_LAYERS: 4
+  HIDDEN_CHANNELS: 1024
+  DROPOUT: 0.0
+  USE_SIREN: false
+  USE_WIRE_REAL: false
+  USE_FF: true
+  MODEL_CLASS: MLPv2WithEarlySeg  # Will be explicitly set in make_config() but kept as default
+
+FOURIER:
+  MAPPING_SIZE: 256
+  FF_SCALE: 4.0
+  FF_FACTOR: 1.0
+
+SIREN:
+  FIRST_OMEGA_0: 15
+  HIDDEN_OMEGA_0: 15
+
+WIRE:
+  WIRE_REAL_FIRST_OMEGA_0: 15
+  WIRE_REAL_HIDDEN_OMEGA_0: 15
+  WIRE_REAL_FIRST_S_0: 15
+  WIRE_REAL_HIDDEN_S_0: 15
+
+MI_CC:
+  LOSS_MI: 0.005
+  GT_VAL: 0.471
+  LOSS_CC: 0.0008
+  MI_USE_PRED: false
+  MI_NUM_BINS: 32
+  MI_SAMPLE_RATIO: 0.7
+  NMI_SIGMA: 0.1
