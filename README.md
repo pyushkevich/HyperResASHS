@@ -149,6 +149,13 @@ If you use this code in your research, please cite our paper:
 
 ## Changelog
 
+### 12/24/2025
+- Added INR and modified nnUNet as git submodules
+- Added INR preparation module with config generation
+- Added INR upsampling script template and generation
+- Added nnUNet training script template and generation
+- Updated README with submodule setup and pipeline documentation
+
 ### 12/22/2025
 - Updated README.md with comprehensive documentation
 - Added data structure documentation slots for atlas and test data
