@@ -13,6 +13,26 @@ This project addresses the challenge of segmenting MTL subregions from anisotrop
 
 The pipeline handles the entire workflow from raw multi-modality MRI images to final segmentation results, including registration, ROI extraction, upsampling, and model inference.
 
+## Setup
+
+This repository uses git submodules for dependencies. When cloning, use:
+
+```bash
+git clone --recursive <repository-url>
+```
+
+If you've already cloned without submodules, initialize them with:
+
+```bash
+git submodule update --init --recursive
+```
+
+**Submodules:**
+- `submodules/multi_contrast_inr`: INR repository (tracking `main` branch)
+- `submodules/nnUNet`: Modified nnUNet repository (tracking `mmseg` branch) - [https://github.com/liyue3780/nnUNet/tree/mmseg](https://github.com/liyue3780/nnUNet/tree/mmseg)
+
+**Note**: The modified nnUNet includes Modality Augmentation methods for multi-modality brain MRI segmentation. Make sure to use the `mmseg` branch when running nnU-Net training.
+
 ## Pipeline Details
 
 The pipeline consists of five main steps:
@@ -46,8 +66,8 @@ The `prepare_inr` stage creates the following folder structure under `{INR_PATH}
    ```bash
    # Edit scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
    # For example: scripts/run_inr_upsampling_292IsotropiSeg.sh
-   # Update INR_REPO_PATH to point to your INR repository
-   INR_REPO_PATH="/path/to/multi_contrast_inr"
+   # Update INR_REPO_PATH to point to the INR submodule
+   INR_REPO_PATH="submodules/multi_contrast_inr"
    ```
 
 2. **Run the generated script**:
@@ -78,7 +98,9 @@ After INR upsampling is finished, **run Step 1 again** (`stage = preprocess`). T
 
 Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. However, **nnU-Net training must be run manually**. 
 
-**Note**: When running nnU-Net training, ensure that the trainer matches the `TRAINER` specified in your configuration file.
+**Note**: 
+- Use the modified nnUNet from `submodules/nnUNet` (mmseg branch) which includes Modality Augmentation methods
+- When running nnU-Net training, ensure that the trainer matches the `TRAINER` specified in your configuration file (e.g., `ModAugUNetTrainer`)
 
 ### Step 5: Testing (`stage = test`)
 
