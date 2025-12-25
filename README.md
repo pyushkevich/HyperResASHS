@@ -93,14 +93,35 @@ After INR upsampling is finished, **run Step 1 again** (`stage = preprocess`). T
 - Convert labels to continuous format
 - Create cross-validation splits
 - Run nnU-Net experiment planning
+- Generate nnU-Net training script: `scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
+
+**Outputs from Step 3:**
+- nnU-Net dataset in `{NNUNET_RAW_PATH}/Dataset{EXP_NUM}_{MODEL_NAME}/`
+- Preprocessed data in `{NNUNET_RAW_PATH}/../nnUNet_preprocessed/Dataset{EXP_NUM}_{MODEL_NAME}/`
+- Cross-validation splits file: `splits_final.json`
+- Training script: `scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
 
 ### Step 4: nnU-Net Training
 
-Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. However, **nnU-Net training must be run manually**. 
+Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. A training script is automatically generated for convenience.
 
-**Note**: 
-- Use the modified nnUNet from `submodules/nnUNet` (mmseg branch) which includes Modality Augmentation methods
-- When running nnU-Net training, ensure that the trainer matches the `TRAINER` specified in your configuration file (e.g., `ModAugUNetTrainer`)
+**To run nnU-Net training:**
+
+1. **Ensure you're using the modified nnUNet** from `submodules/nnUNet` (mmseg branch) which includes Modality Augmentation methods. The training script uses `nnUNetv2_train` command which should be available after installing the modified nnUNet.
+
+2. **Run the generated training script**:
+   ```bash
+   ./scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh
+   # For example: ./scripts/train_nnunet_292IsotropiSeg.sh
+   ```
+
+   The script will automatically train all 5 folds (fold 0-4) using the `TRAINER` specified in your configuration file (e.g., `ModAugUNetTrainer`).
+
+**Note**: The script uses the `nnUNetv2_train` command with the following parameters:
+- Dataset ID: `{EXP_NUM}` (from your config)
+- Configuration: `3d_fullres`
+- Fold: `0-4` (all 5 folds)
+- Trainer: `{TRAINER}` (from your config, e.g., `ModAugUNetTrainer`)
 
 ### Step 5: Testing (`stage = test`)
 

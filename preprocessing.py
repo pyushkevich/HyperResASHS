@@ -224,6 +224,38 @@ class PreprocessorBase():
         shutil.copyfile(join(self.nnunet_raw_date_path, 'splits_final.json'),
                         join(Path(self.config['NNUNET_RAW_PATH']).parent.parent.absolute(), 'nnUNet_preprocessed', nnunet_model_name, 'splits_final.json'))
     
+    def create_nnunet_training_script(self):
+        """Create the shell script for running nnUNet training with correct parameters from config"""
+        # read template file
+        template_path = join(Path(__file__).parent, 'scripts', 'train_nnunet_template.sh')
+        
+        if not os.path.exists(template_path):
+            print(f'Warning: Template file not found: {template_path}')
+            return
+        
+        with open(template_path, 'r') as f:
+            template_content = f.read()
+        
+        # replace placeholders with actual values from config
+        script_content = template_content.replace('{EXP_NUM}', str(self.config['EXP_NUM']))
+        script_content = script_content.replace('{TRAINER}', self.config['TRAINER'])
+        
+        # create scripts directory if it doesn't exist
+        scripts_dir = join(Path(__file__).parent, 'scripts')
+        os.makedirs(scripts_dir, exist_ok=True)
+        
+        # write the script with experiment name in filename
+        exp_name = str(self.config['EXP_NUM']) + self.config['MODEL_NAME']
+        script_filename = f'train_nnunet_{exp_name}.sh'
+        script_path = join(scripts_dir, script_filename)
+        with open(script_path, 'w') as f:
+            f.write(script_content)
+        
+        # make it executable
+        os.chmod(script_path, 0o755)
+        
+        print(f'Created nnUNet training script: {script_path}')
+    
 
 class PreprocessorInVivo(PreprocessorBase):
     def __init__(self, config):
@@ -280,6 +312,7 @@ class PreprocessorInVivo(PreprocessorBase):
             self.preprocess_labels()
             self.process_cross_validation()
             self.nnunet_plan()
+            self.create_nnunet_training_script()
 
         else:
             self.prepare_patch_data_from_ashs_package()
