@@ -82,23 +82,36 @@ python -c "from preprocessing import PreprocessorInVivo; from testing import Mod
 
 ## Pipeline Details
 
-The pipeline consists of five main steps:
+The pipeline consists of six main steps that can be run in linear order. Each step assumes the previous steps have been completed:
 
-### Step 1: Preprocessing (`stage = preprocess`)
+1. **Prepare** → 2. **Prepare INR** → 3. **Run INR Upsampling** → 4. **Preprocess** → 5. **Train** → 6. **Test**
 
-Run preprocessing to create the experiment folder by copying images and segmentations from the two atlas folders (T1w and T2w ASHS atlases). 
+**Note**: Steps 2-3 are only needed if using INR upsampling. For other upsampling methods (e.g., `GreedyUpsampling` or `None`), you can skip Steps 2-3 and go directly from Step 1 to Step 4.
 
-- If the upsampling method is **not INR** (e.g., `GreedyUpsampling` or `None`), the preprocessing will complete all steps including upsampling, registration, and nnU-Net dataset preparation.
-- If the upsampling method is **INR**, the preprocessing will only prepare the patch data and stop, waiting for the user to complete INR upsampling (proceed to Step 2).
+### Step 1: Prepare Patch Data (`stage = prepare`)
 
-**Note**: After INR upsampling is completed (Step 2), you need to **run Step 1 again** (`stage = preprocess`) to complete the remaining preprocessing steps. This second run becomes Step 3.
+Run this step first to create the experiment folder by copying images and segmentations from the two atlas folders (T1w and T2w ASHS atlases). This step:
+- Copies primary and secondary modality images from ASHS packages
+- Copies segmentation files
+- Performs coordinate system transformations (swapdim RPI)
+- Creates the folder structure in `{PREPARE_RAW_PATH}/{EXP_NUM}{MODEL_NAME}/images/`
 
-### Step 2: INR Upsampling (`stage = prepare_inr`)
+**Usage:**
+```bash
+python main.py -s prepare -c {CONFIG_ID}
+```
 
-Use INR to upsample the atlas segmentation. This step requires the copied images and folders from Step 1 as input. The `prepare_inr` stage will:
+### Step 2: Prepare INR Data (`stage = prepare_inr`)
+
+This step prepares the data for INR upsampling. It requires the prepared patch data from Step 1. The `prepare_inr` stage will:
 - Prepare the data in the format expected by the INR submodule
 - Generate INR configuration files for each case
 - Create a shell script `scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh` with paths automatically filled from your config
+
+**Usage:**
+```bash
+python main.py -s prepare_inr -c {CONFIG_ID}
+```
 
 **Folder structure created:**
 
@@ -107,7 +120,9 @@ The `prepare_inr` stage creates the following folder structure under `{INR_PATH}
 - `training_preparation/`: Contains case folders with prepared data ready for INR training
 - `training_output/`: Will contain INR training outputs (created after INR training completes)
 
-**To run INR upsampling:**
+### Step 3: Run INR Upsampling
+
+After preparing INR data, run the INR upsampling script:
 
 1. **Update the INR repository path** in the generated script:
    ```bash
@@ -130,10 +145,11 @@ The `prepare_inr` stage creates the following folder structure under `{INR_PATH}
 
 **Note**: The script uses the INR repository's `main.py` to train each case. Make sure the INR repository is properly set up and accessible.
 
-### Step 3: Complete Preprocessing (`stage = preprocess` - second run)
+### Step 4: Complete Preprocessing (`stage = preprocess`)
 
-After INR upsampling is finished, **run Step 1 again** (`stage = preprocess`). This time, since the INR output exists, the preprocessing will complete all remaining steps:
-- Copy INR upsampled results
+After INR upsampling is finished, run the preprocessing stage to complete all remaining steps. This step assumes the patch data preparation (Step 1) was already completed. It will:
+- Copy INR upsampled results (if using INR upsampling method)
+- Perform resampling/upsampling based on the configured method
 - Register secondary modality (T1w) to primary (T2w)
 - Prepare nnU-Net dataset
 - Remove outer segmentation artifacts
@@ -142,13 +158,20 @@ After INR upsampling is finished, **run Step 1 again** (`stage = preprocess`). T
 - Run nnU-Net experiment planning
 - Generate nnU-Net training script: `scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
 
-**Outputs from Step 3:**
+**Usage:**
+```bash
+python main.py -s preprocess -c {CONFIG_ID}
+```
+
+**Outputs from Step 4:**
 - nnU-Net dataset in `{NNUNET_RAW_PATH}/Dataset{EXP_NUM}_{MODEL_NAME}/`
 - Preprocessed data in `{NNUNET_RAW_PATH}/../nnUNet_preprocessed/Dataset{EXP_NUM}_{MODEL_NAME}/`
 - Cross-validation splits file: `splits_final.json`
 - Training script: `scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
 
-### Step 4: nnU-Net Training
+**Note**: If you're using a non-INR upsampling method (e.g., `GreedyUpsampling` or `None`), you can skip Steps 2-3 and go directly from Step 1 to Step 4.
+
+### Step 5: nnU-Net Training
 
 Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. A training script is automatically generated for convenience.
 
@@ -170,7 +193,7 @@ Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-f
 - Fold: `0-4` (all 5 folds)
 - Trainer: `{TRAINER}` (from your config, e.g., `ModAugUNetTrainer`)
 
-### Step 5: Testing (`stage = test`)
+### Step 6: Testing (`stage = test`)
 
 When processing test data, run the test stage. This stage performs:
 - Whole-brain registration (T1w to T2w)
