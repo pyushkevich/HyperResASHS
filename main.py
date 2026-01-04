@@ -44,7 +44,7 @@ def check_template_alignment(input_config):
     template_path = None
     for file_ in os.listdir(parent_path):
         if 'template' in file_:
-            template_path = join(parent_path, file_)
+            template_path = os.path.join(parent_path, file_)
 
     with open(input_config) as f:
         user_config = yaml.safe_load(f)
@@ -66,6 +66,10 @@ if __name__ == '__main__':
     config_file = search_config_name(args.config_id)
     check_template_alignment(config_file)
     config = yaml.safe_load(open(config_file, 'r'))
+
+    if args.stage == 'prepare':
+        preparer = PreprocessorInVivo(config)
+        preparer.prepare_patch_data_from_ashs_package()
 
     if args.stage == 'prepare_inr':
         inr_executor = INRPreprocess(config)
