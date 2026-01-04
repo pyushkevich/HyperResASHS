@@ -6,6 +6,59 @@ from scipy.ndimage import label as ndi_label
 from picsl_c3d import Convert3D
 
 
+def flip_image(input_path, output_path, flip_axis):
+    image_itk = sitk.ReadImage(input_path)
+    image_array = sitk.GetArrayFromImage(image_itk)
+
+    # flip it
+    image_array = np.flip(image_array, axis=flip_axis)
+
+    # save it
+    new_itk = sitk.GetImageFromArray(image_array)
+    new_itk.SetOrigin(image_itk.GetOrigin())
+    new_itk.SetDirection(image_itk.GetDirection())
+    new_itk.SetSpacing(image_itk.GetSpacing())
+
+    sitk.WriteImage(new_itk, output_path)
+
+
+def convert_each_ground_truth_file_as_continuous(convert_file, nnunet_raw_path):
+    # set convert file
+    convert_content = [ele_.strip('\n') for ele_ in open(convert_file)]
+
+    # read the ground truth
+    gt_path = os.path.join(nnunet_raw_path, 'labelsTr')
+    file_list = os.listdir(gt_path)
+
+    # set output path
+    for file_ in file_list:
+        refseg_path = os.path.join(gt_path, file_)
+        replaced_path = os.path.join(gt_path, file_)
+
+        # read the source image
+        image_itk = sitk.ReadImage(refseg_path)
+        image_array = sitk.GetArrayFromImage(image_itk)
+
+        # create a totally new array
+        new_array = np.zeros(image_array.shape)
+
+        # replace each subregion as target label
+        for tlt_ in convert_content:
+            old_id = int(tlt_.split(',')[0])
+            new_id = int(tlt_.split(',')[1])
+            new_array = new_array + ((image_array == old_id) + 0) * int(new_id)
+            print('replace {} as {}'.format(old_id, new_id))
+
+        # generate new nii file
+        new_itk = sitk.GetImageFromArray(new_array)
+        new_itk.SetOrigin(image_itk.GetOrigin())
+        new_itk.SetDirection(image_itk.GetDirection())
+        new_itk.SetSpacing(image_itk.GetSpacing())
+        sitk.WriteImage(new_itk, replaced_path)
+
+        print('finish and cover the {}'.format(replaced_path))
+
+
 def save_label_mapping_to_txt(snap_label_path, save_path):
     snap_content = [ele_.strip('\n') for ele_ in open(snap_label_path) if ele_[0] != '#']
 
