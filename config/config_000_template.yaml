@@ -1,0 +1,27 @@
+
+# global configure
+EXP_NUM: 000
+MODEL_NAME: ''
+TRAINER: ''
+CONDITION: 'in_vivo'
+
+# preprocessing configure
+PREPARE_RAW_PATH: ''
+PRIMARY_ASHS_PATH: ''  # 3T-T2w ASHS atlas
+SECOND_ASHS_PATH: ''  # 3T-T1w ASHS atlas
+SNAP_LABEL_PATH: ''
+CV_FILE: ''  # the file to define cross-validation
+
+# Upsampling
+UPSAMPLING_METHOD: ''  # options: None, INRUpsampling, GreedyUpsampling
+
+# INR
+INR_PATH: ''  # the path that saves the results of INR
+INR_CORRECTION_PARAM: ''  # options: 'None', 'rigid', 'affine'
+
+# nnU-Net
+NNUNET_RAW_PATH: ''  # nnU-Net's raw data
+NNUNET_PREPROSSOR: ''  # preprocessor for nnUNet plan
+
+# file or folder name config file
+FILE_NAME_CONFIG: 'config/global_000_finenames.yaml'
