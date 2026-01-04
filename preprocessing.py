@@ -303,18 +303,12 @@ class PreprocessorInVivo(PreprocessorBase):
                 print('{}: {}'.format(case_id, side_))
     
     def execute(self):
-        if (self.upsampling_method == 'INRUpsampling' and os.path.exists(self.inr_upsampling_path)) or (self.upsampling_method != 'INRUpsampling'):
-            self.prepare_patch_data_from_ashs_package()
-            self.resampling()
-            self.register_to_primary()
-            self.prepare_nnunet()
-            self.remove_outer_seg()
-            self.preprocess_labels()
-            self.process_cross_validation()
-            self.nnunet_plan()
-            self.create_nnunet_training_script()
-
-        else:
-            self.prepare_patch_data_from_ashs_package()
-            print('Please run INR first before processing multi-modlaity data')
+        self.resampling()
+        self.register_to_primary()
+        self.prepare_nnunet()
+        self.remove_outer_seg()
+        self.preprocess_labels()
+        self.process_cross_validation()
+        self.nnunet_plan()
+        self.create_nnunet_training_script()
 
