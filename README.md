@@ -219,6 +219,13 @@ If you use this code in your research, please cite our paper:
 
 ## Changelog
 
+### 01/04/2026
+- Refactored pipeline to support linear execution order
+- Added separate `prepare` stage for patch data preparation
+- Simplified `execute()` method in preprocessing to remove conditional checks
+- Updated pipeline documentation to reflect linear execution flow
+- Added `.gitignore` to exclude Python cache files and build artifacts
+
 ### 12/24/2025
 - Added INR and modified nnUNet as git submodules
 - Added INR preparation module with config generation
