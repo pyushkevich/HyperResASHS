@@ -15,10 +15,24 @@ The pipeline handles the entire workflow from raw multi-modality MRI images to f
 
 ## Setup
 
-This repository uses git submodules for dependencies. When cloning, use:
+Follow these steps to set up the repository in a fresh environment:
+
+### 1. Create a Conda Environment
+
+Create a new conda environment with Python 3.10 or higher:
 
 ```bash
-git clone --recursive <repository-url>
+conda create -n hyperresashs python=3.10
+conda activate hyperresashs
+```
+
+### 2. Clone the Repository
+
+Clone the repository with submodules:
+
+```bash
+git clone --recursive https://github.com/liyue3780/HyperResASHS.git
+cd HyperResASHS
 ```
 
 If you've already cloned without submodules, initialize them with:
@@ -27,11 +41,44 @@ If you've already cloned without submodules, initialize them with:
 git submodule update --init --recursive
 ```
 
-**Submodules:**
-- `submodules/multi_contrast_inr`: INR repository (tracking `main` branch)
-- `submodules/nnUNet`: Modified nnUNet repository (tracking `mmseg` branch) - [https://github.com/liyue3780/nnUNet/tree/mmseg](https://github.com/liyue3780/nnUNet/tree/mmseg)
+### 3. Install Python Dependencies
+
+Install the required Python packages:
+
+```bash
+pip install PyYAML SimpleITK numpy scipy batchgenerators torch picsl_greedy picsl_c3d
+```
+
+**Note**: Additional dependencies may be required by the submodules. See the submodule setup instructions below.
+
+### 4. Set Up Submodules
+
+This repository uses git submodules for dependencies:
+
+- **`submodules/multi_contrast_inr`**: INR repository (tracking `main` branch)
+- **`submodules/nnUNet`**: Modified nnUNet repository (tracking `mmseg` branch) - [https://github.com/liyue3780/nnUNet/tree/mmseg](https://github.com/liyue3780/nnUNet/tree/mmseg)
+
+**Install nnUNet submodule:**
+
+```bash
+cd submodules/nnUNet
+pip install -e .
+cd ../..
+```
+
+**Install INR submodule dependencies:**
+
+Refer to the INR repository's documentation for specific installation requirements. The INR submodule may require additional dependencies such as PyTorch, nibabel, and other packages.
 
 **Note**: The modified nnUNet includes Modality Augmentation methods for multi-modality brain MRI segmentation. Make sure to use the `mmseg` branch when running nnU-Net training.
+
+### 5. Verify Installation
+
+Verify that the main pipeline can be imported:
+
+```bash
+python -c "from preprocessing import PreprocessorInVivo; from testing import ModelTester; from prepare_inr import INRPreprocess; print('Installation successful!')"
+```
 
 ## Pipeline Details
 
