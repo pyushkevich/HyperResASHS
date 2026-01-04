@@ -4,7 +4,7 @@ from os.path import join
 from utils.upsample_inr_method import copy_inr_upsample_seg, copy_inr_linear_image, create_link, correct_shift
 from utils.upsample_greedy_method import greedy_upsample_segmentation
 from utils.upsample_linear_method import linear_isotropic_upsampling
-from utils.tool import flip_image, save_label_mapping_to_txt, make_nnunet_dataset_json, convert_each_ground_truth_file_as_continuous, add_label_unique_color, get_max_label_value
+from utils.tool import flip_image, save_label_mapping_to_txt, make_nnunet_dataset_json, convert_each_ground_truth_file_as_continuous
 import SimpleITK as sitk
 from batchgenerators.utilities.file_and_folder_operations import save_json, load_json
 import numpy as np
