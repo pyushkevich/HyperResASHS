@@ -68,6 +68,10 @@ cd ../..
 
 **Install INR submodule dependencies:**
 
+```bash
+pip install tensorboard lpips
+```
+
 Refer to the INR repository's documentation for specific installation requirements. The INR submodule may require additional dependencies such as PyTorch, nibabel, and other packages.
 
 **Note**: The modified nnUNet includes Modality Augmentation methods for multi-modality brain MRI segmentation. Make sure to use the `mmseg` branch when running nnU-Net training.
