@@ -126,22 +126,46 @@ The `prepare_inr` stage creates the following folder structure under `{INR_PATH}
 
 ### Step 3: Run INR Upsampling
 
-After preparing INR data, run the INR upsampling script:
+After preparing INR data, you have two options to run INR upsampling:
 
-**Note**: The generated script automatically sets `INR_REPO_PATH` to point to the `submodules/multi_contrast_inr` submodule, so no manual configuration is needed.
+#### Option 1: Run via Python (Recommended for single GPU)
 
-**Run the generated script**:
+Run INR upsampling directly using Python:
+
+```bash
+python main.py -s run_inr -c {CONFIG_ID}
+```
+
+This will process all cases sequentially. The script automatically:
+- Finds all cases in the `training_preparation` folder (created in Step 2)
+- Runs INR training for each case using the generated config files from the `preprocess` folder
+
+#### Option 2: Run via Shell Script (Recommended for multi-GPU)
+
+For multi-GPU setups, you can use the generated shell script and modify it to run different batches on different GPUs:
+
+1. **Edit the generated script** to set `start` and `count` parameters:
+   ```bash
+   # Edit scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
+   # For example: scripts/run_inr_upsampling_292IsotropiSeg.sh
+   # Modify these variables:
+   start=0      # Starting index of cases to process
+   count=60     # Number of cases to process
+   ```
+
+2. **Run the script**:
    ```bash
    ./scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
    # For example: ./scripts/run_inr_upsampling_292IsotropiSeg.sh
    ```
 
-   The script will automatically:
-   - Find all cases in the `training_preparation` folder (created in Step 2)
-   - Run INR training for each case using the generated config files from the `preprocess` folder
-   - Process cases in batches (default: start=0, count=60, can be modified in the script)
+**Multi-GPU Usage Example:**
+- GPU 0: Edit script with `start=0, count=30`, run on GPU 0
+- GPU 1: Edit script with `start=30, count=30`, run on GPU 1
+- GPU 2: Edit script with `start=60, count=30`, run on GPU 2
+- etc.
 
-**Note**: The script uses the INR repository's `main.py` to train each case. Make sure the INR repository is properly set up and accessible.
+**Note**: The generated script automatically sets `INR_REPO_PATH` to point to the `submodules/multi_contrast_inr` submodule, so no manual configuration is needed. The script uses the INR repository's `main.py` to train each case. Make sure the INR repository is properly set up and accessible.
 
 ### Step 4: Complete Preprocessing (`stage = preprocess`)
 

@@ -10,8 +10,8 @@ function main()
     MODEL_NAME="{MODEL_NAME}"  # Will be replaced with MODEL_NAME from config
     INR_REPO_PATH="{INR_REPO_PATH}"  # Will be replaced with submodule path automatically
     
-    exp_name="${EXP_NUM}${MODEL_NAME}"
-    base_dir="${INR_PATH}/${exp_name}/training_preparation"
+    exp_name="{EXP_NUM}{MODEL_NAME}"
+    base_dir="{INR_PATH}/${exp_name}/training_preparation"
     start=0
     count=60
 
@@ -24,7 +24,7 @@ function main()
     for subfolder in "${selected_folders[@]}"; do
         name=$(basename "$subfolder")
         echo "Running command for: $name"
-        python "${INR_REPO_PATH}/main.py" --config "${INR_PATH}/${exp_name}/preprocess/${name}/config.yaml" --logging
+        python "{INR_REPO_PATH}/main.py" --config "{INR_PATH}/${exp_name}/preprocess/${name}/config.yaml" --logging
     done
 
 }

@@ -280,6 +280,45 @@ class INRPreprocess():
         
         print(f'Created INR upsampling script: {script_path}')
     
+    def run_inr_upsampling(self):
+        """run INR upsampling for all cases"""
+        import subprocess
+        
+        exp_name = str(self.config['EXP_NUM']) + self.config['MODEL_NAME']
+        base_dir = join(self.config['INR_PATH'], exp_name, self.nm.INR_PRELIMINARY_PATH)
+        
+        # get project root and INR repo path
+        project_root = Path(__file__).parent
+        inr_repo_path = join(str(project_root), 'submodules', 'multi_contrast_inr')
+        
+        # get all case folders from training_preparation directory
+        if not os.path.exists(base_dir):
+            raise ValueError(f'Training preparation directory not found: {base_dir}. Please run prepare_inr stage first.')
+        
+        all_folders = sorted([f for f in os.listdir(base_dir) if os.path.isdir(join(base_dir, f))])
+        
+        print(f'Found {len(all_folders)} total cases, processing all cases')
+        
+        for case_name in all_folders:
+            # config file is in preprocess folder, not training_preparation
+            config_path = join(self.config['INR_PATH'], exp_name, self.nm.INR_PREPROCESSING, case_name, self.config_name)
+            if not os.path.exists(config_path):
+                print(f'Warning: Config file not found for {case_name}: {config_path}')
+                continue
+            
+            print(f'Running INR upsampling for: {case_name}')
+            inr_main_path = join(inr_repo_path, 'main.py')
+            
+            # run the INR main.py with the config
+            cmd = ['python', inr_main_path, '--config', config_path, '--logging']
+            result = subprocess.run(cmd, cwd=inr_repo_path)
+            
+            if result.returncode != 0:
+                print(f'Error: INR upsampling failed for {case_name}')
+                raise RuntimeError(f'INR upsampling failed for {case_name} with return code {result.returncode}')
+            
+            print(f'Completed INR upsampling for: {case_name}')
+    
     def execute(self):
         self.make_inr_folders()
         self.make_inr_data()

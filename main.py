@@ -59,8 +59,8 @@ if __name__ == '__main__':
     print('')
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c','--config_id', default=295, type=int, help='Add configure id')
-    parser.add_argument('-s','--stage', default='collect_result', type=str, help='Set pipeline stage')
+    parser.add_argument('-c','--config_id', default=392, type=int, help='Add configure id')
+    parser.add_argument('-s','--stage', default='prepare_inr', type=str, help='Set pipeline stage')
     args = parser.parse_args()
 
     config_file = search_config_name(args.config_id)
@@ -74,6 +74,10 @@ if __name__ == '__main__':
     if args.stage == 'prepare_inr':
         inr_executor = INRPreprocess(config)
         inr_executor.execute()
+
+    if args.stage == 'run_inr':
+        inr_executor = INRPreprocess(config)
+        inr_executor.run_inr_upsampling()
 
     if args.stage == 'preprocess':
         preparer = PreprocessorInVivo(config)
