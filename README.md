@@ -84,6 +84,10 @@ Verify that the main pipeline can be imported:
 python -c "from preprocessing import PreprocessorInVivo; from testing import ModelTester; from prepare_inr import INRPreprocess; print('Installation successful!')"
 ```
 
+## Configuration
+
+For detailed configuration information, including config file format and cross-validation file format, see [Configuration Guide](docs/configuration.md).
+
 ## Pipeline Details
 
 The pipeline consists of six main steps that can be run in linear order. Each step assumes the previous steps have been completed:
