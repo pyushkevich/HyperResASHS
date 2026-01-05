@@ -229,7 +229,7 @@ class INRPreprocess():
             config["MODEL"]["MODEL_CLASS"] = self.model_name
         
         if "TRAINING" in config:
-            config["TRAINING"]["EPOCHS"] = 60
+            config["TRAINING"]["EPOCHS"] = 10
 
         with open(save_path, "w") as f:
             yaml.safe_dump(config, f, sort_keys=False)
@@ -254,10 +254,15 @@ class INRPreprocess():
         with open(template_path, 'r') as f:
             template_content = f.read()
         
+        # Get the project root directory and submodule path
+        project_root = Path(__file__).parent
+        inr_repo_path = join(str(project_root), 'submodules', 'multi_contrast_inr')
+        
         # Replace placeholders with actual values from config
         script_content = template_content.replace('{INR_PATH}', self.config['INR_PATH'])
         script_content = script_content.replace('{EXP_NUM}', str(self.config['EXP_NUM']))
         script_content = script_content.replace('{MODEL_NAME}', self.config['MODEL_NAME'])
+        script_content = script_content.replace('{INR_REPO_PATH}', str(inr_repo_path))
         
         # Create scripts directory if it doesn't exist
         scripts_dir = join(Path(__file__).parent, 'scripts')
@@ -274,7 +279,6 @@ class INRPreprocess():
         os.chmod(script_path, 0o755)
         
         print(f'Created INR upsampling script: {script_path}')
-        print(f'Please update INR_REPO_PATH in the script to point to your INR repository')
     
     def execute(self):
         self.make_inr_folders()

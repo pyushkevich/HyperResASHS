@@ -124,15 +124,9 @@ The `prepare_inr` stage creates the following folder structure under `{INR_PATH}
 
 After preparing INR data, run the INR upsampling script:
 
-1. **Update the INR repository path** in the generated script:
-   ```bash
-   # Edit scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
-   # For example: scripts/run_inr_upsampling_292IsotropiSeg.sh
-   # Update INR_REPO_PATH to point to the INR submodule
-   INR_REPO_PATH="submodules/multi_contrast_inr"
-   ```
+**Note**: The generated script automatically sets `INR_REPO_PATH` to point to the `submodules/multi_contrast_inr` submodule, so no manual configuration is needed.
 
-2. **Run the generated script**:
+**Run the generated script**:
    ```bash
    ./scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
    # For example: ./scripts/run_inr_upsampling_292IsotropiSeg.sh

@@ -8,7 +8,7 @@ function main()
     INR_PATH="{INR_PATH}"  # Will be replaced with INR_PATH from config
     EXP_NUM="{EXP_NUM}"    # Will be replaced with EXP_NUM from config
     MODEL_NAME="{MODEL_NAME}"  # Will be replaced with MODEL_NAME from config
-    INR_REPO_PATH="/path/to/multi_contrast_inr"  # Path to INR repository - UPDATE THIS MANUALLY
+    INR_REPO_PATH="{INR_REPO_PATH}"  # Will be replaced with submodule path automatically
     
     exp_name="${EXP_NUM}${MODEL_NAME}"
     base_dir="${INR_PATH}/${exp_name}/training_preparation"
