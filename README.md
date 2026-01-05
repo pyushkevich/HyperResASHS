@@ -199,21 +199,32 @@ python main.py -s preprocess -c {CONFIG_ID}
 
 ### Step 5: nnU-Net Training
 
-Step 3 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. A training script is automatically generated for convenience.
+Step 4 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. A training script is automatically generated for convenience.
 
-**To run nnU-Net training:**
+You have two options to run nnU-Net training:
 
-1. **Ensure you're using the modified nnUNet** from `submodules/nnUNet` (mmseg branch) which includes Modality Augmentation methods. The training script uses `nnUNetv2_train` command which should be available after installing the modified nnUNet.
+#### Option 1: Run via Python (Recommended)
 
-2. **Run the generated training script**:
-   ```bash
-   ./scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh
-   # For example: ./scripts/train_nnunet_292IsotropiSeg.sh
-   ```
+Run nnU-Net training directly using Python:
 
-   The script will automatically train all 5 folds (fold 0-4) using the `TRAINER` specified in your configuration file (e.g., `ModAugUNetTrainer`).
+```bash
+python main.py -s train -c {CONFIG_ID}
+```
 
-**Note**: The script uses the `nnUNetv2_train` command with the following parameters:
+This will train all 5 folds (fold 0-4) sequentially using the `TRAINER` specified in your configuration file (e.g., `ModAugUNetTrainer`).
+
+**Note**: Ensure you're using the modified nnUNet from `submodules/nnUNet` (mmseg branch) which includes Modality Augmentation methods. The `nnUNetv2_train` command should be available after installing the modified nnUNet.
+
+#### Option 2: Run via Shell Script
+
+Alternatively, you can run the generated training script manually:
+
+```bash
+./scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh
+# For example: ./scripts/train_nnunet_292IsotropiSeg.sh
+```
+
+**Training Parameters:**
 - Dataset ID: `{EXP_NUM}` (from your config)
 - Configuration: `3d_fullres`
 - Fold: `0-4` (all 5 folds)

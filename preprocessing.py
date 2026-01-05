@@ -256,6 +256,28 @@ class PreprocessorBase():
         
         print(f'Created nnUNet training script: {script_path}')
     
+    def run_nnunet_training(self):
+        """run nnU-Net training for all 5 folds"""
+        import subprocess
+        
+        exp_num = str(self.config['EXP_NUM'])
+        trainer = self.config['TRAINER']
+        
+        print(f'Running nnU-Net training for dataset {exp_num} with trainer {trainer}')
+        print(f'Training all 5 folds (0-4)')
+        
+        for fold in range(5):
+            print(f'Training fold {fold}...')
+            cmd = ['nnUNetv2_train', exp_num, '3d_fullres', str(fold), '-tr', trainer]
+            result = subprocess.run(cmd)
+            
+            if result.returncode != 0:
+                print(f'Error: nnU-Net training failed for fold {fold}')
+                raise RuntimeError(f'nnU-Net training failed for fold {fold} with return code {result.returncode}')
+            
+            print(f'Completed training for fold {fold}')
+        
+        print('All folds completed successfully')
 
 class PreprocessorInVivo(PreprocessorBase):
     def __init__(self, config):

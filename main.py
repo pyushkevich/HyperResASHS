@@ -83,6 +83,10 @@ if __name__ == '__main__':
         preparer = PreprocessorInVivo(config)
         preparer.execute()
     
+    if args.stage == 'train':
+        preparer = PreprocessorInVivo(config)
+        preparer.run_nnunet_training()
+    
     if args.stage == 'test':
         tester = ModelTester(config)
         tester.execute()
