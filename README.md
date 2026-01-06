@@ -43,10 +43,29 @@ git submodule update --init --recursive
 
 ### 3. Install Python Dependencies
 
-Install the required Python packages:
+**Important**: PyTorch version compatibility is critical. This pipeline requires PyTorch 2.5.x (tested with 2.5.1). Newer versions (e.g., 2.9) may cause compatibility issues.
+
+**Option 1: Install using setup.py (Recommended)**
 
 ```bash
-pip install PyYAML SimpleITK numpy scipy batchgenerators torch picsl_greedy picsl_c3d
+# First, install PyTorch with CUDA support (adjust CUDA version as needed)
+# For CUDA 11.8:
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu118
+
+# For CPU only:
+# pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1
+
+# Then install the package and remaining dependencies
+pip install -e .
+```
+
+**Option 2: Install from requirements.txt**
+
+```bash
+# First, install PyTorch (see Option 1 above)
+
+# Then install other dependencies
+pip install -r requirements.txt
 ```
 
 **Note**: Additional dependencies may be required by the submodules. See the submodule setup instructions below.
@@ -69,7 +88,7 @@ cd ../..
 **Install INR submodule dependencies:**
 
 ```bash
-pip install tensorboard lpips
+pip install tensorboard==2.20.0 lpips==0.1.4
 ```
 
 Refer to the INR repository's documentation for specific installation requirements. The INR submodule may require additional dependencies such as PyTorch, nibabel, and other packages.
