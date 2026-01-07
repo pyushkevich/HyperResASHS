@@ -281,6 +281,20 @@ If you use this code in your research, please cite our paper:
 
 ## Changelog
 
+### 01/07/2026
+- Added `requirements.txt` and `setup.py` with pinned package versions for reproducible installation
+- Added ITK-SNAP installation instructions
+- Added nnU-Net environment variables setup instructions
+- Added Python stages for INR upsampling (`stage = run_inr`) and nnU-Net training (`stage = train`)
+- Created comprehensive documentation in `docs/` folder:
+  - Configuration guide with training and test config details
+  - INR upsampling shell script guide
+  - nnU-Net training shell script guide
+- Updated README to reference documentation files for better organization
+- Added `trim_neck.sh` script for neck trimming
+- Updated testing documentation with config_test details and test data structure
+- Changed default pipeline stage from `prepare_inr` to `prepare`
+
 ### 01/04/2026
 - Refactored pipeline to support linear execution order
 - Added separate `prepare` stage for patch data preparation
