@@ -45,8 +45,6 @@ git submodule update --init --recursive
 
 **Important**: PyTorch version compatibility is critical. This pipeline requires PyTorch 2.5.x (tested with 2.5.1). Newer versions (e.g., 2.9) may cause compatibility issues.
 
-**Option 1: Install using setup.py (Recommended)**
-
 ```bash
 # First, install PyTorch with CUDA support (adjust CUDA version as needed)
 # For CUDA 11.8:
@@ -57,15 +55,6 @@ pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https
 
 # Then install the package and remaining dependencies
 pip install -e .
-```
-
-**Option 2: Install from requirements.txt**
-
-```bash
-# First, install PyTorch (see Option 1 above)
-
-# Then install other dependencies
-pip install -r requirements.txt
 ```
 
 **Note**: Additional dependencies may be required by the submodules. See the submodule setup instructions below.
