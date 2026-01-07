@@ -22,14 +22,14 @@ Training configurations are located in the `config/` directory and define all pa
 - **`UPSAMPLING_METHOD`**: Method for upsampling segmentation (options: `None`, `INRUpsampling`, `GreedyUpsampling`)
   - `None`: No upsampling, use original resolution
   - `INRUpsampling`: Use Implicit Neural Representation for upsampling (requires Steps 2-3)
-  - `GreedyUpsampling`: Use Greedy registration-based upsampling
+  - `GreedyUpsampling`: Linear interpolation implemented by Greedy
 
 #### Preprocessing Paths
 
 - **`PREPARE_RAW_PATH`**: Base path where prepared patch data will be stored
 - **`PRIMARY_ASHS_PATH`**: Path to 3T-T2w ASHS atlas directory. ASHS atlases can be downloaded from [NITRC ASHS project page](https://www.nitrc.org/projects/ashs)
 - **`SECOND_ASHS_PATH`**: Path to 3T-T1w ASHS atlas directory. ASHS atlases can be downloaded from [NITRC ASHS project page](https://www.nitrc.org/projects/ashs)
-- **`SNAP_LABEL_PATH`**: Path to SNAP label file for label mapping
+- **`SNAP_LABEL_PATH`**: Path to SNAP label file for label mapping. This file is available in the T2 atlas directory
 - **`CV_FILE`**: Path to JSON file defining cross-validation folds (see [Cross-Validation File Format](#cross-validation-file-format-cv_file))
 
 #### INR Parameters (if using INR upsampling)
