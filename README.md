@@ -165,30 +165,7 @@ This will process all cases sequentially. The script automatically:
 
 #### Option 2: Run via Shell Script (Recommended for multi-GPU)
 
-For multi-GPU setups, you can use the generated shell script and modify it to run different batches on different GPUs:
-
-1. **Edit the generated script** to set `start` and `count` parameters:
-   ```bash
-   # Edit scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
-   # For example: scripts/run_inr_upsampling_292IsotropiSeg.sh
-   # Modify these variables:
-   start=0      # Starting index of cases to process
-   count=60     # Number of cases to process
-   ```
-
-2. **Run the script**:
-   ```bash
-   ./scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
-   # For example: ./scripts/run_inr_upsampling_292IsotropiSeg.sh
-   ```
-
-**Multi-GPU Usage Example:**
-- GPU 0: Edit script with `start=0, count=30`, run on GPU 0
-- GPU 1: Edit script with `start=30, count=30`, run on GPU 1
-- GPU 2: Edit script with `start=60, count=30`, run on GPU 2
-- etc.
-
-**Note**: The generated script automatically sets `INR_REPO_PATH` to point to the `submodules/multi_contrast_inr` submodule, so no manual configuration is needed. The script uses the INR repository's `main.py` to train each case. Make sure the INR repository is properly set up and accessible.
+For multi-GPU setups, you can use the generated shell script and modify it to run different batches on different GPUs. See [INR Upsampling Shell Script Guide](docs/inr_upsampling_shell_script.md) for detailed instructions.
 
 ### Step 4: Complete Preprocessing (`stage = preprocess`)
 
@@ -236,28 +213,42 @@ This will train all 5 folds (fold 0-4) sequentially using the `TRAINER` specifie
 
 #### Option 2: Run via Shell Script
 
-Alternatively, you can run the generated training script manually:
-
-```bash
-./scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh
-# For example: ./scripts/train_nnunet_292IsotropiSeg.sh
-```
-
-**Training Parameters:**
-- Dataset ID: `{EXP_NUM}` (from your config)
-- Configuration: `3d_fullres`
-- Fold: `0-4` (all 5 folds)
-- Trainer: `{TRAINER}` (from your config, e.g., `ModAugUNetTrainer`)
+Alternatively, you can run the generated training script manually. See [nnU-Net Training Shell Script Guide](docs/nnunet_training_shell_script.md) for detailed instructions.
 
 ### Step 6: Testing (`stage = test`)
 
-When processing test data, run the test stage. This stage performs:
+Testing is independent from Steps 1-5 and uses its own configuration files in the `config_test/` directory. Each test configuration has its own ID that links to a trained model.
+
+**Test Configuration ID Convention:**
+- The test config ID links to the training model ID. For example:
+  - `2921` links to model `292` (the `1` represents the first test set)
+  - `2922`, `2923`, `2924`, etc. can be used for different test sets of the same model
+- The first digits match the `EXP_NUM` of the trained model you want to use
+
+**Usage:**
+```bash
+python main.py -s test -c {TEST_CONFIG_ID}
+# For example: python main.py -s test -c 2921
+```
+
+**Configuration Requirements:**
+- `EXP_NUM`: Must match the training model's `EXP_NUM` (e.g., `292`)
+- `MODEL_NAME`: Must match the training model's `MODEL_NAME` (e.g., `TestPipeline`)
+- `TRAINER`: Must match the training model's `TRAINER`
+- `CONDITION`: Must match the training model's `CONDITION` (e.g., `in_vivo`)
+- `UPSAMPLING_METHOD`: Must match the training model's `UPSAMPLING_METHOD`
+- `TEST_PATH`: Path to test data (see [Configuration Guide](docs/configuration.md) for structure)
+- `TEMPLATE_PATH`: Path to ASHS template for MTL ROI cropping (downloadable from [DOI: 10.5061/dryad.k6djh9wmn](https://doi.org/10.5061/dryad.k6djh9wmn))
+
+**This stage performs:**
 - Whole-brain registration (T1w to T2w)
 - ROI extraction using ASHS template
 - Patch cropping and upsampling
 - Local registration for fine alignment
 - nnU-Net inference for segmentation
 - Output of segmentation results
+
+For detailed test configuration information, see [Configuration Guide](docs/configuration.md).
 
 ## Citation
 
