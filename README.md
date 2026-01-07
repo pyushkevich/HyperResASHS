@@ -162,7 +162,7 @@ The `prepare_inr` stage creates the following folder structure under `{INR_PATH}
 - `training_preparation/`: Contains case folders with prepared data ready for INR training
 - `training_output/`: Will contain INR training outputs (created after INR training completes)
 
-### Step 3: Run INR Upsampling
+### Step 3: Run INR Upsampling (`stage = run_inr`)
 
 After preparing INR data, you have two options to run INR upsampling:
 
@@ -208,7 +208,7 @@ python main.py -s preprocess -c {CONFIG_ID}
 
 **Note**: If you're using a non-INR upsampling method (e.g., `GreedyUpsampling` or `None`), you can skip Steps 2-3 and go directly from Step 1 to Step 4.
 
-### Step 5: nnU-Net Training
+### Step 5: nnU-Net Training (`stage = train`)
 
 Step 4 creates the nnU-Net dataset, runs experiment planning, and creates five-fold cross-validation splits. A training script is automatically generated for convenience.
 
