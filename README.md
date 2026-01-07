@@ -70,7 +70,21 @@ pip install -r requirements.txt
 
 **Note**: Additional dependencies may be required by the submodules. See the submodule setup instructions below.
 
-### 4. Set Up Submodules
+### 4. Install ITK-SNAP
+
+Download ITK-SNAP from the [official website](http://www.itksnap.org/pmwiki/pmwiki.php?n=Downloads.SNAP3) and add its bin directory to your PATH.
+
+**For Linux:**
+
+```bash
+export PATH=$PATH:/path/to/itksnap-4.0.1-20230320-Linux-gcc64/bin
+```
+
+Add this line to your `~/.bashrc` (or `~/.zshrc` for zsh) for permanent setup, then reload your shell: `source ~/.bashrc`
+
+For other platforms, adapt the path according to your installation location and operating system.
+
+### 5. Set Up Submodules
 
 This repository uses git submodules for dependencies:
 
@@ -85,6 +99,18 @@ pip install -e .
 cd ../..
 ```
 
+**Set nnU-Net Environment Variables:**
+
+After installing nnUNet, you must set the following environment variables:
+
+```bash
+export nnUNet_raw="/path/to/nnUNet_raw"
+export nnUNet_preprocessed="/path/to/nnUNet_preprocessed"
+export nnUNet_results="/path/to/nnUNet_results"
+```
+
+For detailed setup instructions (including Linux, MacOS, and Windows), see the [nnU-Net environment variables documentation](https://github.com/MIC-DKFZ/nnUNet/blob/master/documentation/set_environment_variables.md).
+
 **Install INR submodule dependencies:**
 
 ```bash
@@ -95,7 +121,7 @@ Refer to the INR repository's documentation for specific installation requiremen
 
 **Note**: The modified nnUNet includes Modality Augmentation methods for multi-modality brain MRI segmentation. Make sure to use the `mmseg` branch when running nnU-Net training.
 
-### 5. Verify Installation
+### 6. Verify Installation
 
 Verify that the main pipeline can be imported:
 
