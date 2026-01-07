@@ -25,17 +25,11 @@ class ModelTester():
         self.dataset_id = config['EXP_NUM']
         self.trainer = config['TRAINER']
 
-        # the path used to calculate thickness
-        self.thickness_processing_path = config['THICKNESS_PROCESSING_PATH']
-
         # ROI determination (template path)
         self.trim_neck_shellscript = config['NECK_SHELL']
         self.template_3tt1 = join(config['TEMPLATE_PATH'], self.nm.template)
         self.template_roi_left = join(config['TEMPLATE_PATH'], self.nm.left_roi_file)
         self.template_roi_right = join(config['TEMPLATE_PATH'], self.nm.right_roi_file)
-
-        # file results output
-        self.files_output_path = config['FILES_OUTPUT']
 
     def resample_test_with_date(self):
         subject_list = os.listdir(self.test_path)
