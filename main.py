@@ -60,7 +60,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-c','--config_id', default=392, type=int, help='Add configure id')
-    parser.add_argument('-s','--stage', default='prepare_inr', type=str, help='Set pipeline stage')
+    parser.add_argument('-s','--stage', default='prepare', type=str, help='Set pipeline stage')
     args = parser.parse_args()
 
     config_file = search_config_name(args.config_id)
