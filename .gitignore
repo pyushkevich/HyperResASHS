@@ -37,3 +37,22 @@ ENV/
 .DS_Store
 Thumbs.db
 
+# Generated config and script files (exclude from git)
+# Ignore all config files except templates
+config/*.yaml
+!config/config_000_template.yaml
+!config/config_292_IsotropicSeg.yaml
+!config/global_000_finenames.yaml
+
+# Ignore all test config files except templates
+config_test/*.yaml
+!config_test/configtest_0000_template.yaml
+!config_test/configtest_2921_IsotropicSeg.yaml
+!config_test/global_0000_filenames.yaml
+
+# Ignore all script files except templates
+scripts/*.sh
+!scripts/run_inr_upsampling_template.sh
+!scripts/train_nnunet_template.sh
+!scripts/trim_neck.sh
+
