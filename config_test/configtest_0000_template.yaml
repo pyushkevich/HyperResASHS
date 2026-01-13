@@ -11,6 +11,3 @@ TEST_PATH: ''
 # trim neck shell script path
 NECK_SHELL: ''  # this is the shell script to trim the neck for 3T-T1w image
 TEMPLATE_PATH: ''  # it can be downloaded from the ASHS atlas
-
-# file that saves global file names
-FILE_NAME_CONFIG: "config_test/global_0000_filenames.yaml"

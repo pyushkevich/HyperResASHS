@@ -159,6 +159,13 @@ if __name__ == '__main__':
 
     check_template_alignment(config_file)
     config = yaml.safe_load(open(config_file, 'r'))
+    
+    # set default FILE_NAME_CONFIG based on stage
+    if 'FILE_NAME_CONFIG' not in config:
+        if args.stage == 'test':
+            config['FILE_NAME_CONFIG'] = 'config_test/global_0000_filenames.yaml'
+        else:
+            config['FILE_NAME_CONFIG'] = 'config/global_000_finenames.yaml'
 
     if args.stage == 'prepare':
         preparer = PreprocessorInVivo(config)

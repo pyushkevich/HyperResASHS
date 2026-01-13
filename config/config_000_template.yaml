@@ -22,6 +22,3 @@ INR_CORRECTION_PARAM: ''  # options: 'None', 'rigid', 'affine'
 # nnU-Net
 NNUNET_RAW_PATH: ''  # nnU-Net's raw data
 NNUNET_PREPROSSOR: ''  # preprocessor for nnUNet plan
-
-# file or folder name config file
-FILE_NAME_CONFIG: 'config/global_000_finenames.yaml'
