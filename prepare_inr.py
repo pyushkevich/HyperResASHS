@@ -229,7 +229,7 @@ class INRPreprocess():
             config["MODEL"]["MODEL_CLASS"] = self.model_name
         
         if "TRAINING" in config:
-            config["TRAINING"]["EPOCHS"] = 10
+            config["TRAINING"]["EPOCHS"] = 60
 
         with open(save_path, "w") as f:
             yaml.safe_dump(config, f, sort_keys=False)
