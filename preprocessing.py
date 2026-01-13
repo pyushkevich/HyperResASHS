@@ -227,7 +227,7 @@ class PreprocessorBase():
     def create_nnunet_training_script(self):
         """Create the shell script for running nnUNet training with correct parameters from config"""
         # read template file
-        template_path = join(Path(__file__).parent, 'scripts', 'train_nnunet_template.sh')
+        template_path = join(Path(__file__).parent, 'shell', 'train_nnunet_template.sh')
         
         if not os.path.exists(template_path):
             print(f'Warning: Template file not found: {template_path}')
@@ -240,14 +240,14 @@ class PreprocessorBase():
         script_content = template_content.replace('{EXP_NUM}', str(self.config['EXP_NUM']))
         script_content = script_content.replace('{TRAINER}', self.config['TRAINER'])
         
-        # create scripts directory if it doesn't exist
-        scripts_dir = join(Path(__file__).parent, 'scripts')
-        os.makedirs(scripts_dir, exist_ok=True)
+        # create shell directory if it doesn't exist
+        shell_dir = join(Path(__file__).parent, 'shell')
+        os.makedirs(shell_dir, exist_ok=True)
         
         # write the script with experiment name in filename
         exp_name = str(self.config['EXP_NUM']) + self.config['MODEL_NAME']
         script_filename = f'train_nnunet_{exp_name}.sh'
-        script_path = join(scripts_dir, script_filename)
+        script_path = join(shell_dir, script_filename)
         with open(script_path, 'w') as f:
             f.write(script_content)
         

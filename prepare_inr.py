@@ -245,7 +245,7 @@ class INRPreprocess():
     def create_inr_script(self):
         """Create the shell script for running INR upsampling with correct paths from config"""
         # Read template file
-        template_path = join(Path(__file__).parent, 'scripts', 'run_inr_upsampling_template.sh')
+        template_path = join(Path(__file__).parent, 'shell', 'run_inr_upsampling_template.sh')
         
         if not os.path.exists(template_path):
             print(f'Warning: Template file not found: {template_path}')
@@ -264,14 +264,14 @@ class INRPreprocess():
         script_content = script_content.replace('{MODEL_NAME}', self.config['MODEL_NAME'])
         script_content = script_content.replace('{INR_REPO_PATH}', str(inr_repo_path))
         
-        # Create scripts directory if it doesn't exist
-        scripts_dir = join(Path(__file__).parent, 'scripts')
-        os.makedirs(scripts_dir, exist_ok=True)
+        # Create shell directory if it doesn't exist
+        shell_dir = join(Path(__file__).parent, 'shell')
+        os.makedirs(shell_dir, exist_ok=True)
         
         # Write the script with experiment name in filename
         exp_name = str(self.config['EXP_NUM']) + self.config['MODEL_NAME']
         script_filename = f'run_inr_upsampling_{exp_name}.sh'
-        script_path = join(scripts_dir, script_filename)
+        script_path = join(shell_dir, script_filename)
         with open(script_path, 'w') as f:
             f.write(script_content)
         

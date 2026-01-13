@@ -148,7 +148,7 @@ python main.py -s prepare -c {CONFIG_ID}
 This step prepares the data for INR upsampling. It requires the prepared patch data from Step 1. The `prepare_inr` stage will:
 - Prepare the data in the format expected by the INR submodule
 - Generate INR configuration files for each case
-- Create a shell script `scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh` with paths automatically filled from your config
+- Create a shell script `shell/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh` with paths automatically filled from your config
 
 **Usage:**
 ```bash
@@ -193,7 +193,7 @@ After INR upsampling is finished, run the preprocessing stage to complete all re
 - Convert labels to continuous format
 - Create cross-validation splits
 - Run nnU-Net experiment planning
-- Generate nnU-Net training script: `scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
+- Generate nnU-Net training script: `shell/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
 
 **Usage:**
 ```bash
@@ -204,7 +204,7 @@ python main.py -s preprocess -c {CONFIG_ID}
 - nnU-Net dataset in `{NNUNET_RAW_PATH}/Dataset{EXP_NUM}_{MODEL_NAME}/`
 - Preprocessed data in `{NNUNET_RAW_PATH}/../nnUNet_preprocessed/Dataset{EXP_NUM}_{MODEL_NAME}/`
 - Cross-validation splits file: `splits_final.json`
-- Training script: `scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
+- Training script: `shell/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh`
 
 **Note**: If you're using a non-INR upsampling method (e.g., `GreedyUpsampling` or `None`), you can skip Steps 2-3 and go directly from Step 1 to Step 4.
 

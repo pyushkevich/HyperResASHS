@@ -9,8 +9,8 @@ For multi-GPU setups, you can use the generated shell script and modify it to ru
 Edit the generated script to set `start` and `count` parameters:
 
 ```bash
-# Edit scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
-# For example: scripts/run_inr_upsampling_292IsotropiSeg.sh
+# Edit shell/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
+# For example: shell/run_inr_upsampling_292IsotropiSeg.sh
 # Modify these variables:
 start=0      # Starting index of cases to process
 count=60     # Number of cases to process
@@ -21,8 +21,8 @@ count=60     # Number of cases to process
 Run the script:
 
 ```bash
-./scripts/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
-# For example: ./scripts/run_inr_upsampling_292IsotropiSeg.sh
+./shell/run_inr_upsampling_{EXP_NUM}{MODEL_NAME}.sh
+# For example: ./shell/run_inr_upsampling_292IsotropiSeg.sh
 ```
 
 ## Multi-GPU Usage Example

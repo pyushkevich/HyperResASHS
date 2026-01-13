@@ -51,8 +51,8 @@ config_test/*.yaml
 !config_test/global_0000_filenames.yaml
 
 # Ignore all script files except templates
-scripts/*.sh
-!scripts/run_inr_upsampling_template.sh
-!scripts/train_nnunet_template.sh
-!scripts/trim_neck.sh
+shell/*.sh
+!shell/run_inr_upsampling_template.sh
+!shell/train_nnunet_template.sh
+!shell/trim_neck.sh
 

@@ -207,7 +207,7 @@ UPSAMPLING_METHOD: "INRUpsampling"  # Must match training UPSAMPLING_METHOD
 TEST_PATH: '/path/to/test/data'
 
 # trim neck shell script path
-NECK_SHELL: 'scripts/trim_neck.sh'
+NECK_SHELL: 'shell/trim_neck.sh'
 TEMPLATE_PATH: '/path/to/ashs/template'  # Download from DOI: 10.5061/dryad.k6djh9wmn
 
 # file that saves global file names

@@ -146,13 +146,11 @@ if __name__ == '__main__':
     # determine if config_id is a path or an id
     config_file = None
     if os.path.exists(args.config_id):
-        # it's a file path
         config_file = args.config_id
         if not os.path.isfile(config_file):
             raise ValueError(f'config path is not a file: {config_file}')
         validate_config_file(config_file)
     else:
-        # try to parse as integer id
         try:
             config_id = int(args.config_id)
             config_file = search_config_name(config_id)

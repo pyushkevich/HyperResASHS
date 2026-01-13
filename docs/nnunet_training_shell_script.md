@@ -7,8 +7,8 @@ Alternatively, you can run the generated training script manually instead of usi
 Run the generated training script:
 
 ```bash
-./scripts/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh
-# For example: ./scripts/train_nnunet_292IsotropiSeg.sh
+./shell/train_nnunet_{EXP_NUM}{MODEL_NAME}.sh
+# For example: ./shell/train_nnunet_292IsotropiSeg.sh
 ```
 
 ## Training Parameters
