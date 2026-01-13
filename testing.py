@@ -4,6 +4,7 @@ from utils.upsample_inr_method import create_link
 from utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment
 from picsl_greedy import Greedy3D
 from picsl_c3d import Convert3D
+from utils.trim_neck import trim_neck
 import yaml
 from types import SimpleNamespace
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -58,9 +59,9 @@ class ModelTester():
         return existence_flag
     
     def trim_neck_for_original_3tt1(self, case_path):
-        os.chmod(self.trim_neck_shellscript, 0o755)
-        command = f"{self.trim_neck_shellscript} {join(case_path, self.nm.t1_whole_img)} {join(case_path, self.nm.t1_name_after_triming_neck)}"
-        os.system(command)
+        input_image = join(case_path, self.nm.t1_whole_img)
+        output_image = join(case_path, self.nm.t1_name_after_triming_neck)
+        trim_neck(input_image, output_image)
         print('finish trimming neck in 3T-T1')
     
     def create_roi(self, case_path):
