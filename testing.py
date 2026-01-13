@@ -31,8 +31,13 @@ class ModelTester():
         self.template_roi_left = join(config['TEMPLATE_PATH'], self.nm.left_roi_file)
         self.template_roi_right = join(config['TEMPLATE_PATH'], self.nm.right_roi_file)
 
-    def resample_test_with_date(self):
+    def resample_test_with_date(self, subject_id=None):
         subject_list = os.listdir(self.test_path)
+        if subject_id:
+            if subject_id not in subject_list:
+                raise ValueError(f'subject_id {subject_id} not found in test path {self.test_path}')
+            subject_list = [subject_id]
+        
         for subject_ in subject_list:
             subject_path = join(self.test_path, subject_)
             date_list = os.listdir(subject_path)
@@ -255,6 +260,6 @@ class ModelTester():
             with open(join(nnunt_output_path, "elapsed_time.txt"), "w") as f_:
                 f_.write(str(elapsed_time))
 
-    def execute(self):
+    def execute(self, subject_id=None):
         # --- run inference
-        self.resample_test_with_date()
+        self.resample_test_with_date(subject_id=subject_id)

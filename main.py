@@ -205,6 +205,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-c','--config_id', default='392', help='configure id (integer) or path to config file')
     parser.add_argument('-s','--stage', default='prepare', type=str, help='Set pipeline stage')
+    parser.add_argument('--subject_id', type=str, default=None, help='optional: test only this specific subject id (only used when stage is test)')
     args = parser.parse_args()
 
     # determine if config_id is a path or an id
@@ -253,4 +254,7 @@ if __name__ == '__main__':
     
     if args.stage == 'test':
         tester = ModelTester(config)
-        tester.execute()
+        if args.subject_id:
+            tester.execute(subject_id=args.subject_id)
+        else:
+            tester.execute()
