@@ -26,7 +26,6 @@ def search_config_name(config_id):
 
 
 def extract_id_from_filename(filename):
-    # extract id from filename like config_292_IsotropicSeg.yaml -> 292
     basename = os.path.basename(filename)
     parts = basename.split('_')
     if len(parts) >= 2:
@@ -38,8 +37,9 @@ def extract_id_from_filename(filename):
 
 
 def check_id_in_existing_configs(config_id, config_file_path):
-    # check if config_id exists in config/ or config_test/ folders
     curr_path = Path.cwd()
+    config_file_abs_path = Path(config_file_path).resolve()
+    
     for folder_name in ['config', 'config_test']:
         config_path = os.path.join(curr_path, folder_name)
         if not os.path.exists(config_path):
@@ -47,19 +47,32 @@ def check_id_in_existing_configs(config_id, config_file_path):
 
         file_list = os.listdir(config_path)
         for file_ in file_list:
-            if file_ == os.path.basename(config_file_path):
-                continue  # skip the current file
-            try:
-                existing_id = int(file_.split('_')[1])
-                if existing_id == config_id:
-                    raise ValueError(f'config id {config_id} already exists in {folder_name}/{file_}. please change the id in your config filename.')
-            except (ValueError, IndexError):
+            if not file_.endswith('.yaml'):
                 continue
+            
+            existing_file_path = Path(config_path) / file_
+            if not existing_file_path.is_file():
+                continue
+                
+            existing_file_abs_path = existing_file_path.resolve()
+            
+            if existing_file_abs_path == config_file_abs_path:
+                continue
+            
+            parts = file_.split('_')
+            if len(parts) < 2:
+                continue
+            
+            try:
+                existing_id = int(parts[1])
+            except ValueError:
+                continue
+            
+            if existing_id == config_id:
+                raise ValueError(f'config id {config_id} already exists in {folder_name}/{file_}. please rename your config file to use a different id.')
 
 
-def check_nnunet_dataset_exists(config_id, model_name, nnunet_raw_path):
-    # check if Dataset{config_id}_{model_name} exists in nnUNet raw path
-    # check both config path and environment variable
+def check_nnunet_dataset_exists(config_id, nnunet_raw_path):
     paths_to_check = []
     
     if nnunet_raw_path and os.path.exists(nnunet_raw_path):
@@ -70,20 +83,36 @@ def check_nnunet_dataset_exists(config_id, model_name, nnunet_raw_path):
         if env_nnunet_raw not in paths_to_check:
             paths_to_check.append(env_nnunet_raw)
     
-    dataset_name = f'Dataset{config_id}_{model_name}'
     for path in paths_to_check:
-        dataset_path = os.path.join(path, dataset_name)
-        if os.path.exists(dataset_path):
-            raise ValueError(f'nnunet dataset {dataset_name} already exists at {dataset_path}. please change the exp_num in your config file.')
+        if not os.path.exists(path):
+            continue
+        
+        try:
+            dirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+        except (OSError, PermissionError):
+            continue
+        
+        for dir_name in dirs:
+            if not dir_name.startswith('Dataset'):
+                continue
+            
+            parts = dir_name.split('_')
+            if len(parts) >= 1 and parts[0].startswith('Dataset'):
+                id_str = parts[0].replace('Dataset', '')
+                try:
+                    existing_id = int(id_str)
+                except ValueError:
+                    continue
+                
+                if existing_id == config_id:
+                    raise ValueError(f'nnunet dataset {dir_name} already exists at {os.path.join(path, dir_name)}. please rename your config file to use a different exp_num.')
 
 
 def validate_config_file(config_file):
-    # extract id from filename
     filename_id = extract_id_from_filename(config_file)
     if filename_id is None:
         raise ValueError(f'cannot extract id from config filename: {config_file}')
     
-    # load config to get exp_num
     with open(config_file) as f:
         config = yaml.safe_load(f)
     
@@ -91,16 +120,15 @@ def validate_config_file(config_file):
     model_name = config.get('MODEL_NAME')
     nnunet_raw_path = config.get('NNUNET_RAW_PATH')
     
-    # check if filename id matches exp_num
+    # 1. check if filename id matches exp_num
     if exp_num != filename_id:
-        print(f'warning: id in filename ({filename_id}) does not match exp_num in config ({exp_num}). please ensure they are consistent.')
+        raise ValueError(f'id in filename {filename_id} does not match exp_num in config {exp_num}. please rename your config file to match the exp_num.')
     
-    # check if id exists in existing config files
+    # 2. check if id exists in existing config files
     check_id_in_existing_configs(filename_id, config_file)
     
-    # check if nnunet dataset exists
-    if nnunet_raw_path and model_name:
-        check_nnunet_dataset_exists(exp_num, model_name, nnunet_raw_path)
+    # 3. check if nnunet dataset exists
+    check_nnunet_dataset_exists(exp_num, nnunet_raw_path)
 
 
 def config_comparison(template_config, user_config):
@@ -119,15 +147,51 @@ def config_comparison(template_config, user_config):
         raise ValueError(f"Config mismatch:\n{error_msg}")
 
 
-def check_template_alignment(input_config):
-    parent_path = Path(input_config).parent
-    template_path = None
-    for file_ in os.listdir(parent_path):
-        if 'template' in file_:
-            template_path = os.path.join(parent_path, file_)
-
+def check_template_alignment(input_config, stage='prepare'):
     with open(input_config) as f:
         user_config = yaml.safe_load(f)
+    
+    curr_path = Path.cwd()
+    config_abs_path = Path(input_config).resolve()
+    project_config_path = Path(curr_path).resolve()
+    
+    template_path = None
+    
+    # check if config file is in project's config or config_test directory
+    if str(config_abs_path.parent) == str(project_config_path / 'config'):
+        # config file is in project's config/ directory
+        config_path = project_config_path / 'config'
+        if os.path.exists(config_path):
+            for file_ in os.listdir(config_path):
+                if 'template' in file_:
+                    template_path = os.path.join(config_path, file_)
+                    break
+    elif str(config_abs_path.parent) == str(project_config_path / 'config_test'):
+        # config file is in project's config_test/ directory
+        config_path = project_config_path / 'config_test'
+        if os.path.exists(config_path):
+            for file_ in os.listdir(config_path):
+                if 'template' in file_:
+                    template_path = os.path.join(config_path, file_)
+                    break
+    
+    # if template_path is None, use default based on stage
+    if template_path is None:
+        if stage == 'test':
+            config_path = project_config_path / 'config_test'
+        else:
+            config_path = project_config_path / 'config'
+        
+        if os.path.exists(config_path):
+            for file_ in os.listdir(config_path):
+                if 'template' in file_:
+                    template_path = os.path.join(config_path, file_)
+                    break
+    
+    # if still no template found, skip template alignment check
+    if template_path is None:
+        print('warning: template file not found, skipping template alignment check')
+        return
 
     with open(template_path) as f:
         template_config = yaml.safe_load(f)
@@ -157,7 +221,7 @@ if __name__ == '__main__':
         except ValueError:
             raise ValueError(f'invalid config_id: {args.config_id}. it should be an integer id or a valid file path.')
 
-    check_template_alignment(config_file)
+    check_template_alignment(config_file, args.stage)
     config = yaml.safe_load(open(config_file, 'r'))
     
     # set default FILE_NAME_CONFIG based on stage
