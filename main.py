@@ -108,7 +108,7 @@ def check_nnunet_dataset_exists(config_id, nnunet_raw_path):
                     raise ValueError(f'nnunet dataset {dir_name} already exists at {os.path.join(path, dir_name)}. please rename your config file to use a different exp_num.')
 
 
-def validate_config_file(config_file):
+def validate_config_file(config_file, stage='prepare'):
     filename_id = extract_id_from_filename(config_file)
     if filename_id is None:
         raise ValueError(f'cannot extract id from config filename: {config_file}')
@@ -119,6 +119,9 @@ def validate_config_file(config_file):
     exp_num = config.get('EXP_NUM')
     model_name = config.get('MODEL_NAME')
     nnunet_raw_path = config.get('NNUNET_RAW_PATH')
+    
+    if stage == 'test':
+        return
     
     # 1. check if filename id matches exp_num
     if exp_num != filename_id:
@@ -214,7 +217,7 @@ if __name__ == '__main__':
         config_file = args.config_id
         if not os.path.isfile(config_file):
             raise ValueError(f'config path is not a file: {config_file}')
-        validate_config_file(config_file)
+        validate_config_file(config_file, args.stage)
     else:
         try:
             config_id = int(args.config_id)
