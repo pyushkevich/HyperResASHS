@@ -21,6 +21,8 @@ from nnunetv2.experiment_planning.plan_and_preprocess_api import extract_fingerp
 class PreprocessorBase():
     def __init__(self, config) -> None:
         self.config = config
+        self.config['NNUNET_RAW_PATH'] = os.environ.get('nnUNet_raw')
+        
         with open(config['FILE_NAME_CONFIG']) as f:
             settings = yaml.safe_load(f)
             self.nm = SimpleNamespace(**settings)
@@ -43,7 +45,7 @@ class PreprocessorBase():
         self.inr_upsampling_path = join(config['INR_PATH'], inr_exp_name, self.nm.INR_UPSAMPLING_PATH)
 
         # nnunet
-        self.nnunet_raw_date_path = os.path.join(config['NNUNET_RAW_PATH'], 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME']))
+        self.nnunet_raw_date_path = os.path.join(self.config['NNUNET_RAW_PATH'], 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME']))
         self.snap_label_path = config['SNAP_LABEL_PATH']
         self.cv_path = config['CV_FILE']
                     

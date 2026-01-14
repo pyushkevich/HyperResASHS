@@ -118,7 +118,7 @@ def validate_config_file(config_file, stage='prepare'):
     
     exp_num = config.get('EXP_NUM')
     model_name = config.get('MODEL_NAME')
-    nnunet_raw_path = config.get('NNUNET_RAW_PATH')
+    nnunet_raw_path = os.environ.get('nnUNet_raw')
     
     if stage == 'test':
         return

@@ -20,7 +20,6 @@ INR_PATH: '/home/user/data/Data/seg_project/upsample_network/inr_upsampling2'  #
 INR_CORRECTION_PARAM: 'affine'  # options: 'None', 'rigid', 'affine'
 
 # nnU-Net
-NNUNET_RAW_PATH: '/home/user/data/Data/nnUNet_raw_data_base/nnUNet_raw_data'  # nnU-Net's raw data
 NNUNET_PREPROSSOR: 'DefaultPreprocessor'  # preprocessor for nnUNet plan
 
 # file names config

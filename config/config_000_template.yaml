@@ -20,7 +20,6 @@ INR_PATH: ''  # the path that saves the results of INR
 INR_CORRECTION_PARAM: ''  # options: 'None', 'rigid', 'affine'
 
 # nnU-Net
-NNUNET_RAW_PATH: ''  # nnU-Net's raw data
 NNUNET_PREPROSSOR: ''  # preprocessor for nnUNet plan
 
 # file names config
