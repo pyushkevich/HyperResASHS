@@ -134,74 +134,6 @@ def validate_config_file(config_file, stage='prepare'):
     check_nnunet_dataset_exists(exp_num, nnunet_raw_path)
 
 
-def config_comparison(template_config, user_config):
-    user_keys = set(user_config)
-    template_keys = set(template_config)
-
-    missing_keys = template_keys - user_keys
-    extra_keys = user_keys - template_keys
-
-    if missing_keys or extra_keys:
-        error_msg = ""
-        if missing_keys:
-            error_msg += f"Missing keys: {sorted(missing_keys)}\n"
-        if extra_keys:
-            error_msg += f"Extra keys: {sorted(extra_keys)}\n"
-        raise ValueError(f"Config mismatch:\n{error_msg}")
-
-
-def check_template_alignment(input_config, stage='prepare'):
-    with open(input_config) as f:
-        user_config = yaml.safe_load(f)
-    
-    curr_path = Path.cwd()
-    config_abs_path = Path(input_config).resolve()
-    project_config_path = Path(curr_path).resolve()
-    
-    template_path = None
-    
-    # check if config file is in project's config or config_test directory
-    if str(config_abs_path.parent) == str(project_config_path / 'config'):
-        # config file is in project's config/ directory
-        config_path = project_config_path / 'config'
-        if os.path.exists(config_path):
-            for file_ in os.listdir(config_path):
-                if 'template' in file_:
-                    template_path = os.path.join(config_path, file_)
-                    break
-    elif str(config_abs_path.parent) == str(project_config_path / 'config_test'):
-        # config file is in project's config_test/ directory
-        config_path = project_config_path / 'config_test'
-        if os.path.exists(config_path):
-            for file_ in os.listdir(config_path):
-                if 'template' in file_:
-                    template_path = os.path.join(config_path, file_)
-                    break
-    
-    # if template_path is None, use default based on stage
-    if template_path is None:
-        if stage == 'test':
-            config_path = project_config_path / 'config_test'
-        else:
-            config_path = project_config_path / 'config'
-        
-        if os.path.exists(config_path):
-            for file_ in os.listdir(config_path):
-                if 'template' in file_:
-                    template_path = os.path.join(config_path, file_)
-                    break
-    
-    # if still no template found, skip template alignment check
-    if template_path is None:
-        print('warning: template file not found, skipping template alignment check')
-        return
-
-    with open(template_path) as f:
-        template_config = yaml.safe_load(f)
-    
-    config_comparison(template_config, user_config)
-
-
 if __name__ == '__main__':
     print('')
 
@@ -225,7 +157,6 @@ if __name__ == '__main__':
         except ValueError:
             raise ValueError(f'invalid config_id: {args.config_id}. it should be an integer id or a valid file path.')
 
-    check_template_alignment(config_file, args.stage)
     config = yaml.safe_load(open(config_file, 'r'))
     
     # set default FILE_NAME_CONFIG based on stage

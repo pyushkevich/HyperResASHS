@@ -27,7 +27,6 @@ class ModelTester():
         self.trainer = config['TRAINER']
 
         # ROI determination (template path)
-        self.trim_neck_shellscript = config['NECK_SHELL']
         self.template_3tt1 = join(config['TEMPLATE_PATH'], self.nm.template)
         self.template_roi_left = join(config['TEMPLATE_PATH'], self.nm.left_roi_file)
         self.template_roi_right = join(config['TEMPLATE_PATH'], self.nm.right_roi_file)

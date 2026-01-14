@@ -7,7 +7,7 @@ UPSAMPLING_METHOD: "INRUpsampling"
 
 # test 
 TEST_PATH: '/home/user/data/Data/seg_project/test_exp2/test_data3'
-
-# trim neck shell script path
-NECK_SHELL: 'shell/trim_neck.sh'  # this is the shell script to trim the neck for 3T-T1w image
 TEMPLATE_PATH: '/your/path/for/ASHS/template'  # it can be downloaded from the ASHS atlas
+
+# file names config
+FILE_NAME_CONFIG: 'config_test/global_0000_filenames.yaml'  # optional: path to global filenames config, defaults to config_test/global_0000_filenames.yaml if not set
