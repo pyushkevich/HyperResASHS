@@ -267,6 +267,18 @@ If you use this code in your research, please cite our paper:
 
 ## Changelog
 
+### 01/14/2026
+- Replaced `trim_neck.sh` shell script with Python implementation using `picsl_c3d` package
+- Removed ITK-SNAP installation requirement (no longer needed)
+- Updated `multi_contrast_inr` submodule to latest version
+- Modified `--config_id` argument to accept both integer ID and full file path
+- Added config validation checks: ID consistency, conflict detection, and nnUNet dataset existence
+- Made `FILE_NAME_CONFIG` optional with automatic defaults based on stage (test vs. other stages)
+- Renamed `scripts/` folder to `shell/` for better clarity
+- Added optional `--subject_id` argument for test stage to test specific subjects
+- Updated `.gitignore` to exclude generated config and script files while keeping template files tracked
+- Fixed config validation to skip checks when stage is `test`
+
 ### 01/07/2026
 - Added `requirements.txt` and `setup.py` with pinned package versions for reproducible installation
 - Added nnU-Net environment variables setup instructions
