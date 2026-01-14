@@ -59,21 +59,7 @@ pip install -e .
 
 **Note**: Additional dependencies may be required by the submodules. See the submodule setup instructions below.
 
-### 4. Install ITK-SNAP
-
-Download ITK-SNAP from the [official website](http://www.itksnap.org/pmwiki/pmwiki.php?n=Downloads.SNAP3) and add its bin directory to your PATH.
-
-**For Linux:**
-
-```bash
-export PATH=$PATH:/path/to/itksnap-4.0.1-20230320-Linux-gcc64/bin
-```
-
-Add this line to your `~/.bashrc` (or `~/.zshrc` for zsh) for permanent setup, then reload your shell: `source ~/.bashrc`
-
-For other platforms, adapt the path according to your installation location and operating system.
-
-### 5. Set Up Submodules
+### 4. Set Up Submodules
 
 This repository uses git submodules for dependencies:
 
@@ -283,7 +269,6 @@ If you use this code in your research, please cite our paper:
 
 ### 01/07/2026
 - Added `requirements.txt` and `setup.py` with pinned package versions for reproducible installation
-- Added ITK-SNAP installation instructions
 - Added nnU-Net environment variables setup instructions
 - Added Python stages for INR upsampling (`stage = run_inr`) and nnU-Net training (`stage = train`)
 - Created comprehensive documentation in `docs/` folder:
