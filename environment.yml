@@ -97,7 +97,7 @@ dependencies:
     - seaborn==0.13.2
     - simpleitk==2.5.3
     - six==1.17.0
-    - sympy>=1.13.3
+    - sympy==1.13.1
     - tensorboard==2.20.0
     - tensorboard-data-server==0.7.2
     - threadpoolctl==3.6.0
@@ -105,7 +105,6 @@ dependencies:
     - timm==1.0.22
     - tqdm==4.67.1
     - traceback2==1.4.0
-    - triton==3.1.0
     - typing-extensions==4.15.0
     - tzdata==2025.3
     - unittest2==1.1.0
