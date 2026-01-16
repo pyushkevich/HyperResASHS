@@ -56,6 +56,18 @@ From: ubuntu:22.04
 
     chmod +x /app/main.py
 
+    # cleanup to reduce image size
+    rm -rf /app/.git
+    find /app/submodules -name ".git" -type d -exec rm -rf {} + 2>/dev/null || true
+    pip cache purge
+    conda clean -afy
+    apt-get remove -y build-essential git
+    apt-get autoremove -y
+    apt-get clean
+    rm -rf /tmp/*
+    rm -rf /root/.cache
+    rm -rf /var/lib/apt/lists/*
+
 %runscript
     . /opt/conda/etc/profile.d/conda.sh
     conda activate isotropic-test
