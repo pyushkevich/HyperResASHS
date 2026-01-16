@@ -64,7 +64,6 @@ From: ubuntu:22.04
     apt-get remove -y build-essential git
     apt-get autoremove -y
     apt-get clean
-    rm -rf /tmp/*
     rm -rf /root/.cache
     rm -rf /var/lib/apt/lists/*
 
