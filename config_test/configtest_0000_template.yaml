@@ -7,7 +7,10 @@ UPSAMPLING_METHOD: ""
 
 # test 
 TEST_PATH: ''
-TEMPLATE_PATH: ''  # it can be downloaded from the ASHS atlas
+TEMPLATE_PATH: ''
+
+# model download
+HF_MODEL_REPO: ''  # optional: (e.g., "username/Dataset292_IsotropicSeg")
 
 # file names config
-FILE_NAME_CONFIG: 'config_test/global_0000_filenames.yaml'  # optional: path to global filenames config, defaults to config_test/global_0000_filenames.yaml if not set
+FILE_NAME_CONFIG: ''

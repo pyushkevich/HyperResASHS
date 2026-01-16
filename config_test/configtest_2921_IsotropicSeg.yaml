@@ -1,13 +1,13 @@
 # global configure
 EXP_NUM: 292
-MODEL_NAME: 'IsotropiSeg'
+MODEL_NAME: 'IsotropicSeg'
 TRAINER: 'ModAugUNetTrainer'
 CONDITION: 'in_vivo'
 UPSAMPLING_METHOD: "INRUpsampling"
 
 # test 
-TEST_PATH: '/home/user/data/Data/seg_project/test_exp2/test_data3'
-TEMPLATE_PATH: '/your/path/for/ASHS/template'  # it can be downloaded from the ASHS atlas
+TEST_PATH: '/home/liyue7/data/Data/D17_T1T2_ASHS/test_exp_temp/test_data'
+TEMPLATE_PATH: '/home/liyue7/data/Data/D14_3T_Mix_7T/Clinical_Exp/Rerun/template'
 
-# file names config
-FILE_NAME_CONFIG: 'config_test/global_0000_filenames.yaml'  # optional: path to global filenames config, defaults to config_test/global_0000_filenames.yaml if not set
+# model download
+HF_MODEL_REPO: 'liyue3780/Dataset292_IsotropicSeg'  # replace YOUR_USERNAME with your actual Hugging Face username

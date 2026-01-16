@@ -4,6 +4,7 @@ numpy==2.2.6
 scipy==1.15.3
 SimpleITK==2.5.3
 batchgenerators==0.25.1
+huggingface_hub>=0.20.0
 
 # Image processing and registration
 picsl_greedy==0.0.11
