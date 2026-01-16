@@ -129,9 +129,6 @@ dependencies:
     - threadpoolctl==3.6.0
     - tifffile==2025.5.10
     - timm==1.0.22
-    - torch==2.5.1+cu118
-    - torchaudio==2.5.1+cu118
-    - torchvision==0.20.1+cu118
     - tqdm==4.67.1
     - traceback2==1.4.0
     - triton==3.1.0

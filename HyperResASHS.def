@@ -1,0 +1,64 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%labels
+    Author HyperResASHS
+    Version 1.0
+    Description Singularity container for HyperResASHS pipeline
+
+%environment
+    export PATH=/opt/conda/bin:$PATH
+    export CONDA_PREFIX=/opt/conda/envs/isotropic-test
+    export PATH=$CONDA_PREFIX/bin:$PATH
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    export PYTHONPATH=/app:$PYTHONPATH
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        wget \
+        ca-certificates \
+        git \
+        build-essential \
+        && rm -rf /var/lib/apt/lists/*
+
+    wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+    bash /tmp/miniconda.sh -b -p /opt/conda
+    rm /tmp/miniconda.sh
+
+    export PATH=/opt/conda/bin:$PATH
+    conda config --set always_yes yes
+    conda config --add channels defaults
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+    conda clean -afy
+
+    mkdir -p /app
+    cd /app
+    
+    git clone --recursive https://github.com/liyue3780/HyperResASHS.git /tmp/hyperresashs
+    cp -r /tmp/hyperresashs/* /app/
+    cp -r /tmp/hyperresashs/.* /app/ 2>/dev/null || true
+    rm -rf /tmp/hyperresashs
+    
+    conda env create -f /app/environment.yml
+    conda clean -afy
+
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate isotropic-test
+
+    pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu118
+
+    cd /app
+    if [ -f setup.py ]; then
+        pip install -e .
+    fi
+
+    chmod +x /app/main.py
+
+%runscript
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate isotropic-test
+    cd /app
+    exec "$@"
+
