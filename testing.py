@@ -32,7 +32,7 @@ class ModelTester():
         self.template_3tt1 = join(config['TEMPLATE_PATH'], self.nm.template)
         self.template_roi_left = join(config['TEMPLATE_PATH'], self.nm.left_roi_file)
         self.template_roi_right = join(config['TEMPLATE_PATH'], self.nm.right_roi_file)
-    
+
     def download_model_from_huggingface(self, hf_repo_id, target_path):
         try:
             from huggingface_hub import snapshot_download
