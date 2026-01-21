@@ -13,6 +13,10 @@ From: ubuntu:22.04
     export LC_ALL=C.UTF-8
     export LANG=C.UTF-8
     export PYTHONPATH=/app:$PYTHONPATH
+    # Default to internal paths. When bind-mounted, these paths map to host directories for persistence
+    export nnUNet_raw=/app/nnunet_data/nnUNet_raw
+    export nnUNet_preprocessed=/app/nnunet_data/nnUNet_preprocessed
+    export nnUNet_results=/app/nnunet_data/nnUNet_results
 
 %post
     apt-get update && apt-get install -y --no-install-recommends \
@@ -55,6 +59,11 @@ From: ubuntu:22.04
     fi
 
     chmod +x /app/main.py
+
+    # Create internal nnUNet directories
+    mkdir -p /app/nnunet_data/nnUNet_raw
+    mkdir -p /app/nnunet_data/nnUNet_preprocessed
+    mkdir -p /app/nnunet_data/nnUNet_results
 
     # cleanup to reduce image size
     rm -rf /app/.git
