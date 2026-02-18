@@ -352,7 +352,7 @@ def default_progress_callback(progress: float|None=None,
         pass
     
 
-class ModelTester():
+class HyperASHSInference():
     def __init__(self, config):
         self.config = config
 
