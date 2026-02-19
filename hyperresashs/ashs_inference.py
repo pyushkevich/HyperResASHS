@@ -1,10 +1,10 @@
 import os
 from os.path import join
-from utils.upsample_inr_method import create_link
-from utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment_in_memory
+from .utils.upsample_inr_method import create_link
+from .utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment_in_memory
+from .utils.trim_neck import trim_neck_in_memory
 from picsl_greedy import Greedy3D
 from picsl_c3d import Convert3D
-from utils.trim_neck import trim_neck
 import yaml
 from types import SimpleNamespace
 from batchgenerators.utilities.file_and_folder_operations import *
@@ -406,7 +406,7 @@ class HyperASHSInference():
                 def patched_request(self, method, url, **kwargs):
                     kwargs['verify'] = False
                     return original_request(self, method, url, **kwargs)
-                requests.Session.request = patched_request
+                requests.Session.request = patched_request # type: ignore
             
             try:
                 downloaded_path = snapshot_download(
@@ -566,7 +566,8 @@ class HyperASHSInference():
             # Perform neck trimming if necessary
             if overwrite_existing or not gpe.t1_neck_trim.exists():
                 with tm_neck:
-                    trim_neck(gpe.t1_native.filename, gpe.t1_neck_trim.filename)
+                    gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data, verbose=True)
+                        
             callback(progress=0.05, message=f"Neck trimming completed in {tm_neck.total:.1f} s.")
                     
             # Check if nnUNet inputs already exist, and if not, perform the registration steps
@@ -753,6 +754,8 @@ class HyperASHSInference():
                     plans_manager = PlansManager(plans)
 
                     parameters = []
+                    configuration_name = None
+                    inference_allowed_mirroring_axes = None
                     for i, f in enumerate(use_folds):
                         f = int(f) if f != 'all' else f
                         checkpoint = torch.load(join(nnunet_model, f'fold_{f}', 'checkpoint_final.pth'),
@@ -763,7 +766,7 @@ class HyperASHSInference():
                                 'inference_allowed_mirroring_axes' in checkpoint.keys() else None
 
                         parameters.append(checkpoint['network_weights'])
-
+                        
                     configuration_manager = plans_manager.get_configuration(configuration_name)
 
                     # restore network

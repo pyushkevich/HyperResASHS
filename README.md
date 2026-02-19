@@ -68,6 +68,8 @@ This repository uses git submodules for dependencies:
 
 **Install nnUNet submodule:**
 
+This step is only needed if you will be training new HyperResASHS models. For inference, it is not necessary.
+
 ```bash
 cd submodules/nnUNet
 pip install -e .
@@ -88,6 +90,8 @@ For detailed setup instructions (including Linux, MacOS, and Windows), see the [
 
 **Install INR submodule dependencies:**
 
+This step is only needed if you will be training new HyperResASHS models. For inference, it is not necessary.
+
 ```bash
 pip install tensorboard==2.20.0 lpips==0.1.4
 ```
@@ -101,7 +105,7 @@ Refer to the INR repository's documentation for specific installation requiremen
 Verify that the main pipeline can be imported:
 
 ```bash
-python -c "from preprocessing import PreprocessorInVivo; from testing import ModelTester; from prepare_inr import INRPreprocess; print('Installation successful!')"
+python -c "from hyperresashs.preprocessing import PreprocessorInVivo; from hyperresashs.testing import ModelTester; from hyperresashs.prepare_inr import INRPreprocess; print('Installation successful!')"
 ```
 
 ## Configuration

@@ -2,10 +2,9 @@ import yaml
 import argparse
 from pathlib import Path
 import os
-from preprocessing import *
-from ashs_inference import *
-from prepare_inr import INRPreprocess
-
+from .preprocessing import *
+from .ashs_inference import *
+from .prepare_inr import INRPreprocess
 
 def search_config_name(config_id, config_root = None) -> str:
     config_root = Path.cwd() if config_root is None else config_root
@@ -160,14 +159,13 @@ def load_config(config_id, stage, config_path=None):
     
     return config
 
-
-if __name__ == '__main__':
+def main():
     print('')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-C','--config_path', help='Set the path to the folder with configuration files')
-    parser.add_argument('-c','--config_id', default='392', required=True, help='configure id (integer) or path to config file')
-    parser.add_argument('-s','--stage', default='prepare', type=str, help='Set pipeline stage')
+    parser.add_argument('-c','--config_id', required=True, help='configure id (integer) or path to config file')
+    parser.add_argument('-s','--stage', required=True, type=str, help='Set pipeline stage')
     parser.add_argument('--subject_id', type=str, default=None, help='optional: test only this specific subject id (only used when stage is test)')
     args = parser.parse_args()
 
@@ -200,3 +198,6 @@ if __name__ == '__main__':
             tester.execute(subject_id=args.subject_id)
         else:
             tester.execute()
+
+if __name__ == '__main__':
+    main()

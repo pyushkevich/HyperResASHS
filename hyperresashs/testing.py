@@ -1,10 +1,10 @@
 import os
 from os.path import join
-from utils.upsample_inr_method import create_link
-from utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment
+from .utils.upsample_inr_method import create_link
+from .utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment
 from picsl_greedy import Greedy3D
 from picsl_c3d import Convert3D
-from utils.trim_neck import trim_neck
+from .utils.trim_neck import trim_neck
 import yaml
 from types import SimpleNamespace
 from batchgenerators.utilities.file_and_folder_operations import *

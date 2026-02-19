@@ -1,5 +1,5 @@
 import SimpleITK as sitk
-from utils.tool import linear_resample_to_spacing_using_itkimage
+from .tool import linear_resample_to_spacing_using_itkimage
 import numpy as np
 
 
