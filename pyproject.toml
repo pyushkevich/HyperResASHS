@@ -74,7 +74,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-hyperresashs = "hyperresashs.main:main"
+hrashs = "hyperresashs.ashs_cli:main"
 
 [tool.setuptools]
 packages = ["hyperresashs"]

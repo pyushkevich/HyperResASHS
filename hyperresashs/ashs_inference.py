@@ -545,7 +545,8 @@ class HyperASHSInference():
     
     def run_inference_for_one_case(self, case_path, subject:str|None=None, date:str|None=None,
                                    save_intermediates: bool = True, overwrite_existing: bool = False,
-                                   callback: ProgressCallbackType = default_progress_callback):
+                                   callback: ProgressCallbackType = default_progress_callback, 
+                                   device: str|None = None):
    
         nt = self.greedy_num_threads
         
@@ -713,40 +714,45 @@ class HyperASHSInference():
                     from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
                     from nnunetv2.utilities.label_handling.label_handling import determine_num_input_channels
 
-                    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-                    predictor = nnUNetPredictor(verbose=True, device=device)
-                    nnunet_model = join(os.environ.get("nnUNet_results",""), 
-                                        f"Dataset{self.config['EXP_NUM']}_{self.config['MODEL_NAME']}", f"{self.config['TRAINER']}__nnUNetPlans__3d_fullres")
+                    torch_device = torch.device(device) if device else (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
+                    predictor = nnUNetPredictor(verbose=True, device=torch_device)
                     
-                    dataset_json_path = join(nnunet_model, 'dataset.json')
-                    plans_json_path = join(nnunet_model, 'plans.json')
-                    model_complete = (os.path.exists(dataset_json_path) and 
-                                    os.path.exists(plans_json_path))
+                    # Check if the path to the model is specified in config
+                    nnunet_model = self.config.get('MODEL_PATH')
+                    if not nnunet_model:                    
                     
-                    if model_complete:
-                        fold_folders = [item for item in os.listdir(nnunet_model) 
-                                        if item.startswith('fold_') and os.path.isdir(join(nnunet_model, item))]
-                        if fold_folders:
-                            for fold_folder in fold_folders:
-                                checkpoint_path = join(nnunet_model, fold_folder, 'checkpoint_final.pth')
-                                if not os.path.exists(checkpoint_path):
-                                    model_complete = False
-                                    break
-                        else:
-                            model_complete = False
-                    
-                    if not model_complete:
-                        hf_repo_id = self.config.get('HF_MODEL_REPO')
-                        if hf_repo_id:
-                            print(f"Model not found or incomplete at {nnunet_model}, downloading from Hugging Face...")
-                            self.download_model_from_huggingface(hf_repo_id, nnunet_model)
-                        else:
-                            raise FileNotFoundError(
-                                f"Model not found or incomplete at {nnunet_model} and HF_MODEL_REPO not specified in config. "
-                                f"Please either:\n"
-                                f"  1. Place the trained model at the expected path, or\n"
-                                f"  2. Add HF_MODEL_REPO to your config file to enable automatic download from Hugging Face."
-                            )
+                        nnunet_model = join(os.environ.get("nnUNet_results",""), 
+                                            f"Dataset{self.config['EXP_NUM']}_{self.config['MODEL_NAME']}", f"{self.config['TRAINER']}__nnUNetPlans__3d_fullres")
+                        
+                        dataset_json_path = join(nnunet_model, 'dataset.json')
+                        plans_json_path = join(nnunet_model, 'plans.json')
+                        model_complete = (os.path.exists(dataset_json_path) and 
+                                        os.path.exists(plans_json_path))
+                        
+                        if model_complete:
+                            fold_folders = [item for item in os.listdir(nnunet_model) 
+                                            if item.startswith('fold_') and os.path.isdir(join(nnunet_model, item))]
+                            if fold_folders:
+                                for fold_folder in fold_folders:
+                                    checkpoint_path = join(nnunet_model, fold_folder, 'checkpoint_final.pth')
+                                    if not os.path.exists(checkpoint_path):
+                                        model_complete = False
+                                        break
+                            else:
+                                model_complete = False
+                        
+                        if not model_complete:
+                            hf_repo_id = self.config.get('HF_MODEL_REPO')
+                            if hf_repo_id:
+                                print(f"Model not found or incomplete at {nnunet_model}, downloading from Hugging Face...")
+                                self.download_model_from_huggingface(hf_repo_id, nnunet_model)
+                            else:
+                                raise FileNotFoundError(
+                                    f"Model not found or incomplete at {nnunet_model} and HF_MODEL_REPO not specified in config. "
+                                    f"Please either:\n"
+                                    f"  1. Place the trained model at the expected path, or\n"
+                                    f"  2. Add HF_MODEL_REPO to your config file to enable automatic download from Hugging Face."
+                                )
                     
                     use_folds = predictor.auto_detect_available_folds(nnunet_model, 'checkpoint_final.pth')
                     dataset_json = load_json(join(nnunet_model, 'dataset.json'))

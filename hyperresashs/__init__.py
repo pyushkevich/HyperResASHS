@@ -1,5 +1,6 @@
 import sys
 import os
+from importlib.metadata import version, PackageNotFoundError
 
 # Check for any already-cached nnunetv2 modules
 to_remove = [key for key in sys.modules if key == "nnunetv2" or key.startswith("nnunetv2.")]
@@ -11,4 +12,10 @@ for key in to_remove:
 _submodule_path = os.path.join(os.path.dirname(__file__), "submodules", "nnUNet")
 sys.path.insert(0, _submodule_path)
 
-
+# Get the version from python importlib
+try:
+    # Replace 'your_package_name' with the actual name of your package
+    __version__ = version("hyperresashs") 
+except PackageNotFoundError:
+    # Handle cases where the package isn't installed in the environment (e.g., running from source without proper installation)
+    __version__ = "unknown"
