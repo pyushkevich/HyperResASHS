@@ -7,7 +7,6 @@ from picsl_greedy import Greedy3D
 from picsl_c3d import Convert3D
 import yaml
 from types import SimpleNamespace
-from batchgenerators.utilities.file_and_folder_operations import *
 import torch
 import time
 import shutil
@@ -16,7 +15,7 @@ import SimpleITK as sitk
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from typing import Protocol, Dict, Literal, Type, Callable, Any
+from typing import Protocol, Dict, Literal, Type, Callable, Any, Tuple
 
 
 
@@ -57,9 +56,24 @@ class LazyPipelineElement:
         setattr(cls, f'set_{obj_type.__name__}', set)
         
     @property
-    def data(self) -> Any:
+    def data_or_none(self) -> Any:
         """Read the object from disk if it hasn't been read yet, and return it. Returns None if the file does not exist."""
         if self._data is None and os.path.exists(self.filename):
+            # Get the loader function for this type
+            loader = getattr(self, f'get_{self.obj_type.__name__}', None)
+            if loader is None:
+                raise ValueError(f"No loader registered for type {self.obj_type}")
+            self._data = loader()
+            
+        return self._data
+    
+    @property
+    def data(self) -> Any:
+        """Read the object from disk if it hasn't been read yet, and return it. Raises exception if data does not exist."""
+        if self._data is None:
+            if not os.path.exists(self.filename):
+                raise FileNotFoundError(f"File does not exist: {self.filename}")
+
             # Get the loader function for this type
             loader = getattr(self, f'get_{self.obj_type.__name__}', None)
             if loader is None:
@@ -108,6 +122,261 @@ class LazyImage(LazyPipelineElement):
     """
     def __init__(self, filename):
         super().__init__(filename, sitk.Image)        
+ 
+ 
+# This class stores the images generated using processing
+class GlobalPipelineElements:
+    def __init__(self, case_path:str, nm: SimpleNamespace):
+        # Registration matrices
+        self.fn_save_mat_path_t2_to_t1_global = join(case_path, 'global_matrix_3tt2_to_3tt1.mat')
+        self.fn_template_to_3tt1_affine_matrix = join(case_path, nm.affine_matrix)
+
+        # Raw inputs                
+        self.t2_whole_img = LazyImage(join(case_path, nm.t2_whole_img))
+        self.t1_native = LazyImage(join(case_path, nm.t1_whole_img_before_registeration))
+        
+        # Processed images
+        self.t1_neck_trim = LazyImage(join(case_path, nm.t1_name_after_triming_neck))
+        self.t1_reg_to_t2 = LazyImage(join(case_path, nm.t1_whole_img))
+        self.template_to_3tt1 = LazyImage(join(case_path, nm.template_to_3tt1))
+        self.t2_padded_img = LazyImage(join(case_path, nm.t2_padded_img))
+    
+
+class TemplatePipelineElements:
+    def __init__(self, template_path:str, nm: SimpleNamespace):
+        self.template_3tt1 = LazyImage(join(template_path, nm.template))
+        self.template_roi_left = LazyImage(join(template_path, nm.left_roi_file))
+        self.template_roi_right = LazyImage(join(template_path, nm.right_roi_file))
+
+
+class LocalPipelineElements:
+    def __init__(self, case_path:str, side:str, test_folder: str, nm: SimpleNamespace):
+        # Folders
+        self.dir_local = join(case_path, test_folder, side)
+        self.dir_nnunet_input = join(self.dir_local, 'input')
+        self.dir_nnunet_output = join(self.dir_local, 'output')
+        
+        # Images and matrices generated during preprocessing
+        self.roi_in_t1_space = LazyImage(join(case_path, nm.global_roi_in_3tt1_XYZ.replace('XYZ', side)))
+        self.fn_save_mat_path_t2_to_t1_local = join(self.dir_local, nm.reg_mat)
+        self.t2_patch_native = LazyImage(join(self.dir_local, nm.hyper_primary))
+        self.t1_patch_warped = LazyImage(join(self.dir_local, nm.hyper_secondary_after_registertion))
+        self.fn_registration_qc = join(self.dir_local, f'registration_qc.png')
+        
+        # NNUNet input and output
+        self.hl_nnunet_t2_input = join(self.dir_nnunet_input, 'MTL_000_0000.nii.gz')
+        self.hl_nnunet_t1_input = join(self.dir_nnunet_input, 'MTL_000_0001.nii.gz')
+        self.nnunet_seg = LazyImage(join(self.dir_nnunet_output, 'MTL_000.nii.gz'))
+        self.fn_segmentation_qc = join(self.dir_local, f'segmentation_qc.png')
+        
+        # Final post-processed segmentation
+        self.t2_seg_native = LazyImage(join(self.dir_local, f'hyperashs_seg_{side}_to_t2orig.nii.gz'))
+        
+        
+class ASHSExperimentBase:
+    def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
+                 sides=['left', 'right'], subject:str|None=None, date:str|None=None,):
+        self.config = config
+        self.test_folder = 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME'])
+        self.gpe = GlobalPipelineElements(case_path, nm)
+        self.lpe = { side: LocalPipelineElements(case_path, side, self.test_folder, nm) for side in sides }
+        self.tpe = TemplatePipelineElements(config['TEMPLATE_PATH'], nm)
+        self.subject = subject
+        self.date = date
+        self.qc_title = f'{subject} - {date}' if (subject and date) else f'{subject}' if subject else ''
+
+
+# Define a signature for the callback function that can be used to report progress and send 
+# updates to the caller during processing. The callback function is meant to be used in 
+# conjunction with ITK-SNAP DSS, but not limited to it
+class ProgressCallbackType(Protocol):
+    def __call__(self, 
+                 progress: float|None=None, 
+                 progress_range: Tuple[float, float] = (0.0, 1.0), 
+                 attachments: Dict[str,str]|None = None,
+                 message: str|None = None) -> None: 
+        ...
+        
+def default_progress_callback(progress: float|None=None,
+                              progress_range: Tuple[float, float] = (0.0, 1.0), 
+                              attachments: Dict[str,str]|None = None,
+                              message: str|None = None) -> None:
+        pass
+        
+        
+class ASHSProcessor:
+    """Common code for preprocessing T2/T1 pairs to generate ROIs for inference/training"""
+    def __init__(self, config, overwrite_existing=False, save_intermediates=True):
+        self.overwrite_existing = overwrite_existing
+        self.save_intermediates = save_intermediates
+        self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', 0.2)
+        self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
+        self.tm_neck, self.tm_reg_t1_t2_whole, self.tm_reg_t1_temp, self.tm_reg_t1_t2_local, self.tm_finalize = Timer(), Timer(), Timer(), Timer(), Timer()
+        
+    def preprocess(self, exp: ASHSExperimentBase, callback: ProgressCallbackType = default_progress_callback, progress_range=(0.0, 0.25)):
+        """
+        Preprocess the T1 and T2 images for a given case, including neck trimming, registration, and ROI cropping.
+        """
+        nt = self.greedy_num_threads
+        gpe, lpe, tpe = exp.gpe, exp.lpe, exp.tpe
+        
+        # Perform neck trimming if necessary
+        if self.overwrite_existing or not gpe.t1_neck_trim.exists():
+            with self.tm_neck:
+                gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data, verbose=True)
+                    
+        callback(progress=0.2, progress_range=progress_range, 
+                 message=f"Neck trimming completed in {self.tm_neck.total:.1f} s.")
+                
+        # Check if nnUNet inputs already exist, and if not, perform the registration steps
+        if self.overwrite_existing or not all(lp.t2_patch_native.exists() and lp.roi_in_t1_space.exists() for lp in lpe.values()):
+            
+            # ------- global T1 to T2 registration using ASHS pipeline -------
+            with self.tm_reg_t1_t2_whole:
+
+                # If specified, crop the T2 image before registration      
+                t2_cropped_img = gpe.t2_whole_img.data
+                if self.t2_cropping > 0:
+                    # Create the cropping command for c3d based on the specified cropping fraction
+                    c3d  = Convert3D()
+                    c3d.push(gpe.t2_whole_img.data)
+                    c = self.t2_cropping * 100
+                    c3d.execute(f'-swapdim RSA -region {c}x{c}x0% {100-2*c}x{100-2*c}x100%')
+                    t2_cropped_img = c3d.peek(-1)
+                
+                # Perform the affine registration
+                g = Greedy3D()
+                g.execute(f'-threads {nt} -z -a -dof 6 -ia-identity -m NMI '
+                        f'-i t2 t1 -n 100x100x10 -o {gpe.fn_save_mat_path_t2_to_t1_global} ', 
+                        t2=t2_cropped_img, t1=gpe.t1_neck_trim.data)
+                
+                # Apply the registration 
+                g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
+                        f'-r {gpe.fn_save_mat_path_t2_to_t1_global}', t1_reg_to_t2=None)
+                
+                if self.save_intermediates:
+                    gpe.t1_reg_to_t2.data = g['t1_reg_to_t2']
+            
+            # ------- global T1 to template registration using ASHS pipeline -------
+            with self.tm_reg_t1_temp:
+
+                # 1. rigid
+                g.execute(f'-threads {nt} -a -dof 6 -m NCC 2x2x2 '
+                        f"-i template_3tt1 trim_t1_image "
+                        f"-o rigid -n 400x0x0x0 "
+                        f"-ia-image-centers -search 400 5 5", 
+                        template_3tt1=tpe.template_3tt1.data, trim_t1_image=gpe.t1_neck_trim.data, rigid=None)
+                
+                # 2. affine
+                g.execute(f'-threads {nt} -a -m NCC 2x2x2 '
+                        f'-i template_3tt1 trim_t1_image '
+                        f'-o {gpe.fn_template_to_3tt1_affine_matrix} -n 400x80x40x0 '
+                        f'-ia rigid')
+                
+                # 3. deformable
+                g.execute(f'-threads {nt} -m NCC 2x2x2 -e 0.5 -n 60x20x0 -sv '
+                        f'-i template_3tt1 trim_t1_image -it {gpe.fn_template_to_3tt1_affine_matrix} '
+                        f'-o warpfwd -oinv warpinv', 
+                        warpfwd=None, warpinv=None)
+                
+                # 4. apply
+                g.execute(f"-threads {nt} -rf trim_t1_image "
+                        f"-rm template_3tt1 template_to_3tt1 "
+                        f"-rm temp_roi_left t1_roi_left "
+                        f"-rm temp_roi_right t1_roi_right "
+                        f"-r {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv", 
+                        template_to_3tt1=None, temp_roi_left=tpe.template_roi_left.data, temp_roi_right=tpe.template_roi_right.data, 
+                        t1_roi_left=None, t1_roi_right=None)
+                
+                # Read off the ROI images
+                t1_roi = { 'left': g['t1_roi_left'], 'right': g['t1_roi_right'] }
+
+                if self.save_intermediates:
+                    gpe.template_to_3tt1.data = g['template_to_3tt1']
+                    for k, v in t1_roi.items():
+                        lpe[k].roi_in_t1_space.data = v
+        
+            # ------- Perform the cropping based on the ROIs  ------- 
+            with self.tm_reg_t1_t2_local:
+                # Pad the T2 image with world alignment
+                t2_padded_img = pad_image_with_world_alignment_in_memory(t2_cropped_img, [40, 40, 40], [40, 40, 40])
+                
+                for side_, lp in lpe.items():
+                                            
+                    # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
+                    t2_original_spacing = np.array(t2_cropped_img.GetSpacing())
+                    spc_order = np.argsort(t2_original_spacing)
+                    spc_sorted = np.array([t2_original_spacing[i] for i in spc_order])
+                    spc_var = np.array([
+                        np.std(np.array([spc_sorted[0], spc_sorted[1], spc_sorted[2] / (k+1)])) for k in range(10)])
+                    scaling = np.ones(3)
+                    scaling[spc_order[-1]] = np.argmin(spc_var)+1
+                    scaling_str = 'x'.join([f'{100*s}' for s in scaling]) + '%'
+                    print(f'Original T2 spacing: {t2_original_spacing}, Scaling factors: {scaling_str}')              
+                                    
+                    # Crop the T2 using the T1 ROI and apply the new spacing
+                    c3d = Convert3D()
+                    c3d.push(t2_padded_img)
+                    c3d.push(t1_roi[side_])
+                    c3d.execute(f'-popas ROI_T1 -as T2 -push ROI_T1 -reslice-matrix {gpe.fn_save_mat_path_t2_to_t1_global} -trim 5vox '
+                                f'-resample {scaling_str} -as ROI_T2 -dup -push T2 -reslice-identity -swapdim RPI')
+                    lp.t2_patch_native.data = c3d.peek(-1)
+                    roi_t2 = c3d.peek(-2)
+
+                    # Write out the cropped T2 image and create links for nnUNet input
+                    create_link(lp.t2_patch_native.filename, lp.hl_nnunet_t2_input)
+                                    
+                    # Compute local registration between T2 and T1
+                    g.execute(f'-threads {nt} -z -a -dof 6 -ia {gpe.fn_save_mat_path_t2_to_t1_global} -m NMI '
+                            f'-i t2 t1 -gm mask -n 100x50 -o {lp.fn_save_mat_path_t2_to_t1_local} ', 
+                            t2=lp.t2_patch_native.data, t1=gpe.t1_neck_trim.data, mask=roi_t2)
+                    
+                    # Apply the registration to the T1 and resample it into the isotropic space
+                    g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
+                            f'-r {lp.fn_save_mat_path_t2_to_t1_local}', t1_reg_to_t2=None)
+                    lp.t1_patch_warped.data = g['t1_reg_to_t2']
+
+                    # Write out the cropped T1 and create link for nnUNet input
+                    create_link(lp.t1_patch_warped.filename, lp.hl_nnunet_t1_input)
+                    
+                    # For QC purposes, map template all the way to T2 space
+                    g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "
+                                f"-r {lp.fn_save_mat_path_t2_to_t1_local} {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv",
+                                template_to_t2=None)
+
+                    # Generate registration QC screenshot
+                    generate_ashs_registration_qc(
+                        template_img=g['template_to_t2'],
+                        t1_to_t2=lp.t1_patch_warped.data,
+                        t2_img=lp.t2_patch_native.data,
+                        output_path=lp.fn_registration_qc,
+                        title=f"{exp.qc_title} Registration QC - {side_.capitalize()}")
+        
+        t_total = self.tm_reg_t1_t2_whole.total + self.tm_reg_t1_temp.total + self.tm_reg_t1_t2_local.total
+        callback(progress=1.0, progress_range=progress_range, 
+                    attachments={f'{side_.capitalize()} Registration QC': lp.fn_registration_qc for side_, lp in lpe.items()},
+                    message=f"Registration and ROI cropping completed in {t_total:.1f} s.")
+    
+    def postprocess(self, exp: ASHSExperimentBase, callback: ProgressCallbackType = default_progress_callback, progress_range=(0.95, 1.0)):
+        """
+        Postprocess the nnUNet segmentation outputs, including mapping back to native space and generating QC visualizations.
+        """
+        with self.tm_finalize:
+            # Create a new greedy instance for the registration
+            g = Greedy3D()
+            
+            # Apply resampling to original T2 space for each side
+            for side_, lp in exp.lpe.items():
+                g.execute(f'-threads {self.greedy_num_threads} -rf t2 -ri LABEL 0.2vox '
+                            f'-rm final_seg {lp.t2_seg_native.filename} -r ',
+                            t2=exp.gpe.t2_whole_img.data, final_seg=lp.nnunet_seg.data)
+                
+        callback(progress=1.0, progress_range=progress_range, message=f"Post-processing completed in {self.tm_finalize.total:.1f} s.")
+                
+
+        
+                
+ 
         
 
 # Normalize a simple ITK image to 0-255 range
@@ -332,25 +601,6 @@ class Timer:
         return self.t_elapsed / self.n if self.n > 0 else np.NAN
     
     
-# Define a signature for the callback function that can be used to report progress and send 
-# updates to the caller during processing. The callback function is meant to be used in 
-# conjunction with ITK-SNAP DSS, but not limited to it
-class ProgressCallbackType(Protocol):
-    def __call__(self, 
-                 progress: float|None=None, 
-                 progress_chunk_start: float=0.0, 
-                 progress_chunk_end: float=1.0, 
-                 attachments: Dict[str,str]|None = None,
-                 message: str|None = None) -> None: 
-        ...
-        
-def default_progress_callback(progress: float|None=None,
-                              progress_chunk_start: float=0.0, 
-                              progress_chunk_end: float=1.0, 
-                              attachments: Dict[str,str]|None = None,
-                              message: str|None = None) -> None:
-        pass
-    
 
 class HyperASHSInference():
     def __init__(self, config):
@@ -365,18 +615,9 @@ class HyperASHSInference():
         self.upsampling_method = config['UPSAMPLING_METHOD']
         self.dataset_id = config['EXP_NUM']
         self.trainer = config['TRAINER']
-
-        # ROI determination (template path)
-        self.template_3tt1 = join(config['TEMPLATE_PATH'], self.nm.template)
-        self.template_roi_left = join(config['TEMPLATE_PATH'], self.nm.left_roi_file)
-        self.template_roi_right = join(config['TEMPLATE_PATH'], self.nm.right_roi_file)
-        
+       
         # Number of threads for Greedy
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
-        
-        # Optional cropping applied to the T2 image before registration with T1. Cropping
-        # in the coronal plane helps with registration speed and accuracy.
-        self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', 0.2)
         
         # Optional ITK-SNAP label file
         self.label_file = config.get('ITKSNAP_LABEL_FILE')
@@ -500,208 +741,34 @@ class HyperASHSInference():
 
                 self.run_inference_for_one_case(date_path, subject=subject_, date=date_)
     
-    # This class stores the images generated using processing
-    class GlobalPipelineElements:
-        def __init__(self, case_path:str, nm: SimpleNamespace):
-            # Registration matrices
-            self.fn_save_mat_path_t2_to_t1_global = join(case_path, 'global_matrix_3tt2_to_3tt1.mat')
-            self.fn_template_to_3tt1_affine_matrix = join(case_path, nm.affine_matrix)
 
-            # Raw inputs                
-            self.t2_whole_img = LazyImage(join(case_path, nm.t2_whole_img))
-            self.t1_native = LazyImage(join(case_path, nm.t1_whole_img_before_registeration))
-            
-            # Processed images
-            self.t1_neck_trim = LazyImage(join(case_path, nm.t1_name_after_triming_neck))
-            self.t1_reg_to_t2 = LazyImage(join(case_path, nm.t1_whole_img))
-            self.template_to_3tt1 = LazyImage(join(case_path, nm.template_to_3tt1))
-            self.t2_padded_img = LazyImage(join(case_path, nm.t2_padded_img))
-        
-    class LocalPipelineElements:
-        def __init__(self, case_path:str, side:str, test_folder: str, nm: SimpleNamespace):
-            # Folders
-            self.dir_local = join(case_path, test_folder, side)
-            self.dir_nnunet_input = join(self.dir_local, 'input')
-            self.dir_nnunet_output = join(self.dir_local, 'output')
-            
-            # Images and matrices generated during preprocessing
-            self.roi_in_t1_space = LazyImage(join(case_path, nm.global_roi_in_3tt1_XYZ.replace('XYZ', side)))
-            self.fn_save_mat_path_t2_to_t1_local = join(self.dir_local, nm.reg_mat)
-            self.t2_patch_native = LazyImage(join(self.dir_local, nm.hyper_primary))
-            self.t1_patch_warped = LazyImage(join(self.dir_local, nm.hyper_secondary_after_registertion))
-            self.fn_registration_qc = join(self.dir_local, f'registration_qc.png')
-            
-            # NNUNet input and output
-            self.hl_nnunet_t2_input = join(self.dir_nnunet_input, 'MTL_000_0000.nii.gz')
-            self.hl_nnunet_t1_input = join(self.dir_nnunet_input, 'MTL_000_0001.nii.gz')
-            self.nnunet_seg = LazyImage(join(self.dir_nnunet_output, 'MTL_000.nii.gz'))
-            self.fn_segmentation_qc = join(self.dir_local, f'segmentation_qc.png')
-            
-            # Final post-processed segmentation
-            self.t2_seg_native = LazyImage(join(self.dir_local, f'hyperashs_seg_{side}_to_t2orig.nii.gz'))
-                    
-    def get_pipeline_elements(self, case_path:str):
-        return self.GlobalPipelineElements(case_path, self.nm), { side: self.LocalPipelineElements(case_path, side, self.test_folder, self.nm) for side in ['left', 'right'] }
-    
     def run_inference_for_one_case(self, case_path, subject:str|None=None, date:str|None=None,
                                    save_intermediates: bool = True, overwrite_existing: bool = False,
                                    callback: ProgressCallbackType = default_progress_callback, 
                                    device: str|None = None):
-   
-        nt = self.greedy_num_threads
         
-        # Generate a title for QC images based on subject and date if provided
-        qc_title = f'{subject} - {date}' if (subject and date) else f'{subject}' if subject else ''
-        
+        # Create the ASHS experiment representation
+        exp = ASHSExperimentBase(self.config, case_path, self.nm, subject=subject, date=date)
+
+        # Create a preprocessing/registration worker
+        reg = ASHSProcessor(self.config, 
+                            overwrite_existing=overwrite_existing, 
+                            save_intermediates=save_intermediates) 
+
         # create the folder for hyper-resolution inference
         hyper_test_path = join(case_path, self.test_folder)
         os.makedirs(hyper_test_path, exist_ok=True)
         
-        # Initialize the pipeline elements
-        gpe, lpe = self.get_pipeline_elements(case_path)
-    
         # Create timers for all elements of the pipeline            
-        tm_all, tm_neck, tm_reg_t1_t2_whole, tm_reg_t1_temp, tm_reg_t1_t2_local, tm_nnunet, tm_finalize = Timer(), Timer(), Timer(), Timer(), Timer(), Timer(), Timer()
+        tm_all, tm_nnunet = Timer(), Timer()
         with tm_all:
             
-            # Perform neck trimming if necessary
-            if overwrite_existing or not gpe.t1_neck_trim.exists():
-                with tm_neck:
-                    gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data, verbose=True)
-                        
-            callback(progress=0.05, message=f"Neck trimming completed in {tm_neck.total:.1f} s.")
-                    
-            # Check if nnUNet inputs already exist, and if not, perform the registration steps
-            if overwrite_existing or not all(lp.t2_patch_native.exists() and lp.roi_in_t1_space.exists() for lp in lpe.values()):
-                
-                # ------- global T1 to T2 registration using ASHS pipeline -------
-                with tm_reg_t1_t2_whole:
-
-                    # If specified, crop the T2 image before registration      
-                    t2_cropped_img = gpe.t2_whole_img.data
-                    if self.t2_cropping > 0:
-                        # Create the cropping command for c3d based on the specified cropping fraction
-                        c3d  = Convert3D()
-                        c3d.push(gpe.t2_whole_img.data)
-                        c = self.t2_cropping * 100
-                        c3d.execute(f'-swapdim RSA -region {c}x{c}x0% {100-2*c}x{100-2*c}x100%')
-                        t2_cropped_img = c3d.peek(-1)
-                    
-                    # Perform the affine registration
-                    g = Greedy3D()
-                    g.execute(f'-threads {nt} -z -a -dof 6 -ia-identity -m NMI '
-                            f'-i t2 t1 -n 100x100x10 -o {gpe.fn_save_mat_path_t2_to_t1_global} ', 
-                            t2=t2_cropped_img, t1=gpe.t1_neck_trim.data)
-                    
-                    # Apply the registration 
-                    g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
-                            f'-r {gpe.fn_save_mat_path_t2_to_t1_global}', t1_reg_to_t2=None)
-                    
-                    if save_intermediates:
-                        gpe.t1_reg_to_t2.data = g['t1_reg_to_t2']
-                
-                # ------- global T1 to template registration using ASHS pipeline -------
-                with tm_reg_t1_temp:
-                    template_3tt1 = sitk.ReadImage(self.template_3tt1)
-
-                    # 1. rigid
-                    g.execute(f'-threads {nt} -a -dof 6 -m NCC 2x2x2 '
-                            f"-i template_3tt1 trim_t1_image "
-                            f"-o rigid -n 400x0x0x0 "
-                            f"-ia-image-centers -search 400 5 5", 
-                            template_3tt1=template_3tt1, trim_t1_image=gpe.t1_neck_trim.data, rigid=None)
-                    
-                    # 2. affine
-                    g.execute(f'-threads {nt} -a -m NCC 2x2x2 '
-                            f'-i template_3tt1 trim_t1_image '
-                            f'-o {gpe.fn_template_to_3tt1_affine_matrix} -n 400x80x40x0 '
-                            f'-ia rigid')
-                    
-                    # 3. deformable
-                    g.execute(f'-threads {nt} -m NCC 2x2x2 -e 0.5 -n 60x20x0 -sv '
-                            f'-i template_3tt1 trim_t1_image -it {gpe.fn_template_to_3tt1_affine_matrix} '
-                            f'-o warpfwd -oinv warpinv', 
-                            warpfwd=None, warpinv=None)
-                    
-                    # 4. apply
-                    g.execute(f"-threads {nt} -rf trim_t1_image "
-                            f"-rm template_3tt1 template_to_3tt1 "
-                            f"-rm {self.template_roi_left} t1_roi_left "
-                            f"-rm {self.template_roi_right} t1_roi_right "
-                            f"-r {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv", 
-                            template_to_3tt1=None, t1_roi_left=None, t1_roi_right=None)
-                    
-                    # Read off the ROI images
-                    t1_roi = { 'left': g['t1_roi_left'], 'right': g['t1_roi_right'] }
-
-                    if save_intermediates:
-                        gpe.template_to_3tt1.data = g['template_to_3tt1']
-                        for k, v in t1_roi.items():
-                            lpe[k].roi_in_t1_space.data = v
-            
-                # ------- Perform the cropping based on the ROIs  ------- 
-                with tm_reg_t1_t2_local:
-                    # Pad the T2 image with world alignment
-                    t2_padded_img = pad_image_with_world_alignment_in_memory(t2_cropped_img, [40, 40, 40], [40, 40, 40])
-                    
-                    for side_, lp in lpe.items():
-                                                
-                        # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
-                        t2_original_spacing = np.array(t2_cropped_img.GetSpacing())
-                        spc_order = np.argsort(t2_original_spacing)
-                        spc_sorted = np.array([t2_original_spacing[i] for i in spc_order])
-                        spc_var = np.array([
-                            np.std(np.array([spc_sorted[0], spc_sorted[1], spc_sorted[2] / (k+1)])) for k in range(10)])
-                        scaling = np.ones(3)
-                        scaling[spc_order[-1]] = np.argmin(spc_var)+1
-                        scaling_str = 'x'.join([f'{100*s}' for s in scaling]) + '%'
-                        print(f'Original T2 spacing: {t2_original_spacing}, Scaling factors: {scaling_str}')              
-                                        
-                        # Crop the T2 using the T1 ROI and apply the new spacing
-                        c3d = Convert3D()
-                        c3d.push(t2_padded_img)
-                        c3d.push(t1_roi[side_])
-                        c3d.execute(f'-popas ROI_T1 -as T2 -push ROI_T1 -reslice-matrix {gpe.fn_save_mat_path_t2_to_t1_global} -trim 5vox '
-                                    f'-resample {scaling_str} -as ROI_T2 -dup -push T2 -reslice-identity -swapdim RPI')
-                        lp.t2_patch_native.data = c3d.peek(-1)
-                        roi_t2 = c3d.peek(-2)
-
-                        # Write out the cropped T2 image and create links for nnUNet input
-                        create_link(lp.t2_patch_native.filename, lp.hl_nnunet_t2_input)
-                                        
-                        # Compute local registration between T2 and T1
-                        g.execute(f'-threads {nt} -z -a -dof 6 -ia {gpe.fn_save_mat_path_t2_to_t1_global} -m NMI '
-                                f'-i t2 t1 -gm mask -n 100x50 -o {lp.fn_save_mat_path_t2_to_t1_local} ', 
-                                t2=lp.t2_patch_native.data, t1=gpe.t1_neck_trim.data, mask=roi_t2)
-                        
-                        # Apply the registration to the T1 and resample it into the isotropic space
-                        g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
-                                f'-r {lp.fn_save_mat_path_t2_to_t1_local}', t1_reg_to_t2=None)
-                        lp.t1_patch_warped.data = g['t1_reg_to_t2']
-
-                        # Write out the cropped T1 and create link for nnUNet input
-                        create_link(lp.t1_patch_warped.filename, lp.hl_nnunet_t1_input)
-                        
-                        # For QC purposes, map template all the way to T2 space
-                        g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "
-                                  f"-r {lp.fn_save_mat_path_t2_to_t1_local} {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv",
-                                  template_to_t2=None)
-
-                        # Generate registration QC screenshot
-                        generate_ashs_registration_qc(
-                            template_img=g['template_to_t2'],
-                            t1_to_t2=lp.t1_patch_warped.data,
-                            t2_img=lp.t2_patch_native.data,
-                            output_path=lp.fn_registration_qc,
-                            title=f"{qc_title} Registration QC - {side_.capitalize()}")
-            
-            callback(progress=0.25,
-                     attachments={f'{side_.capitalize()} Registration QC': lp.fn_registration_qc for side_, lp in lpe.items()},
-                     message=f"Registration and ROI cropping completed in {tm_reg_t1_t2_whole.total + tm_reg_t1_temp.total + tm_reg_t1_t2_local.total:.1f} s.")
+            # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
+            reg.preprocess(exp, callback=callback, progress_range=(0.0, 0.25))
 
             # ------- nnunet inference -------
             with tm_nnunet:
-                for i_side_, (side_, lp) in enumerate(lpe.items()):
+                for i_side_, (side_, lp) in enumerate(exp.lpe.items()):
 
                     # command
                     print(f'start running inference for {lp.dir_local}')
@@ -811,32 +878,21 @@ class HyperASHSInference():
                         t2 = lp.t2_patch_native.data,
                         label_file = self.label_file,
                         output_path = lp.fn_segmentation_qc,
-                        title = f"{qc_title} Segmentation QC - {side_.capitalize()}")
+                        title = f"{exp.qc_title} Segmentation QC - {side_.capitalize()}")
                         
                     # Report being done with part of the nnUNet processing 
-                    callback(progress=0.5 * (i_side_+1), 
+                    callback(progress=0.5 * (i_side_+1), progress_range=(0.25, 0.75),
                              message=f"nnUNet Inference for {side_} completed in {elapsed_time:.1f} s.",
-                             attachments={f'{side_.capitalize()} Segmentation QC': lp.fn_segmentation_qc},
-                             progress_chunk_start=0.25, progress_chunk_end=0.95)
-                        
-            with tm_finalize:
-
-                # Create a new greedy instance for the registration
-                g = Greedy3D()
-                
-                # Apply resampling to original T2 space for each side
-                for side_, lp in lpe.items():
-                    g.execute(f'-threads {nt} -rf t2 -ri LABEL 0.2vox '
-                              f'-rm final_seg {lp.t2_seg_native.filename} -r ',
-                              t2=gpe.t2_whole_img.data, final_seg=lp.nnunet_seg.data)
-                    
-            callback(progress=1.0, message=f"Post-processing completed in {tm_finalize.total:.1f} s.")
+                             attachments={f'{side_.capitalize()} Segmentation QC': lp.fn_segmentation_qc})
+            
+            # ------- final post-processing -------
+            reg.postprocess(exp, callback=callback, progress_range=(0.95, 1.0))
                     
         print(f'ASHS inference completed for case: {case_path}')
-        print(f'  Time in neck trimming: {tm_neck.total:.2f}s')
-        print(f'  Time in global T1/T2 reg: {tm_reg_t1_t2_whole.total:.2f}s')
-        print(f'  Time in T1/template reg: {tm_reg_t1_temp.total:.2f}s')
-        print(f'  Time in local T1/T2 reg: {tm_reg_t1_t2_local.total:.2f}s')
+        print(f'  Time in neck trimming: {reg.tm_neck.total:.2f}s')
+        print(f'  Time in global T1/T2 reg: {reg.tm_reg_t1_t2_whole.total:.2f}s')
+        print(f'  Time in T1/template reg: {reg.tm_reg_t1_temp.total:.2f}s')
+        print(f'  Time in local T1/T2 reg: {reg.tm_reg_t1_t2_local.total:.2f}s')
         print(f'  Time in nnUNet: {tm_nnunet.total:.2f}s')
         print(f'  Total time: {tm_all.total:.2f}s')
 

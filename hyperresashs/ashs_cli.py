@@ -1,5 +1,6 @@
 from .ashs_inference import HyperASHSInference
 from .utils.huggingface import hf_disable_ssl_verification, hf_read_yaml
+from .ashs_training import HyperASHSTraining
 from .main import load_config
 from . import __version__
 import argparse
@@ -13,6 +14,7 @@ import os
 import shutil
 import yaml
 import sys
+from typing import Dict, Any
 
 """
 Original ASHS command line help message for reference:
@@ -101,6 +103,7 @@ global_roi_in_3tt1_XYZ: "template_roi_XYZ_to_mprage_warped.nii.gz"
 # preprocessing
 primary: "primary.nii.gz"
 secondary: "secondary.nii.gz"
+seg: "seg.nii.gz"
 hyper_primary: "hyper_primary.nii.gz"
 hyper_secondary: "hyper_secondary.nii.gz"
 reg_mat: "auxiluary_to_primary.mat"
@@ -136,19 +139,29 @@ def main():
                            help='Path to T1-weighted image')
     run_parser.add_argument('-f', '--t2', type=str, required=True, 
                            help='Path to T2-weighted image')
-    run_parser.add_argument('-w', '--workdir', type=str, required=True, 
-                           help='Path to working directory')
-    run_parser.add_argument('-N', '--no-overwrite', action='store_true', 
-                           help='Do not overwrite existing results')
-    run_parser.add_argument('-t', '--threads', type=int, default=1, 
-                           help='Number of parallel threads to use for segmentation [default: 1]')
-    run_parser.add_argument('-d', '--device', type=str, 
-                            help='Device to use for segmentation (e.g. "cuda:0" or "cpu"). Default: auto-detect')
-    run_parser.add_argument('-L', '--no-links', action='store_true', 
-                            help='Do not create symlinks in the working directory; copy files instead. By default, symlinks are created to the input T1 and T2 images in the working directory')
     
+    # Training command
+    train_parser = subparsers.add_parser('train', help='Train a HyperResASHS model on a dataset')
+    train_parser.add_argument('-c', '--config', type=str, required=True, 
+                              help='Path to training configuration YAML file. See documentation for expected format.')
+    train_parser.add_argument('-m', '--manifest', type=str, required=True, 
+                              help='Path to manifest CSV file describing the training dataset. See documentation for expected format.')
+
+    # Add common arguments for run and train subcommands
+    for p in [run_parser, train_parser]:
+        p.add_argument('-w', '--workdir', type=str, required=True, 
+                       help='Path to working directory')
+        p.add_argument('-N', '--no-overwrite', action='store_true', 
+                       help='Do not overwrite existing results')
+        p.add_argument('-t', '--threads', type=int, default=1, 
+                       help='Number of parallel threads to use for segmentation [default: 1]')
+        p.add_argument('-d', '--device', type=str, 
+                       help='Device to use for segmentation (e.g. "cuda:0" or "cpu"). Default: auto-detect')
+        p.add_argument('-L', '--no-links', action='store_true', 
+                       help='Do not create symlinks in the working directory; copy files instead. By default, symlinks are created to the input T1 and T2 images in the working directory')
+
     # Add -k flag for all relevant sub parsers
-    for p in [list_parser, run_parser, describe_parser]:
+    for p in [list_parser, run_parser, describe_parser, train_parser]:
         p.add_argument('-k', '--disable-ssl-verification', action='store_true', 
                        help='Disable SSL verification for Hugging Face Hub access')
     
@@ -161,13 +174,17 @@ def main():
     # Handle commands
     if args.command == 'list':
         list_atlases(args)
-        return 0
-    if args.command == 'desc':
+    elif args.command == 'desc':
         describe_atlas(args)
-        return 0
     elif args.command == 'run':
-        return run_segmentation(args)
-    
+        run_segmentation(args)
+    elif args.command == 'train':
+        run_training(args)
+    else:
+        raise ValueError(f"Unknown command: {args.command}")
+        
+    return 0
+
     
 def get_atlas_listing(match=None):
     # Fetch upennpatchlab/hyperresashs_atlas_directory file active_atlases.yaml from HF:    
@@ -276,71 +293,26 @@ class Logger(object):
     def __del__(self):
         self.close()
         
-
-def run_segmentation(args) -> int:
-    """Run the segmentation pipeline."""
-    
-    # Create a logger
-    os.makedirs(os.path.join(args.workdir, 'logs'), exist_ok=True)
-    logger = Logger(os.path.join(os.path.join(args.workdir, 'logs'), 'hyperashs_log.txt'))
-    
-    # First, the atlas may be either a local path to the atlas or a huggingface hub id.
-    atlas_local_path = None
-    if os.path.isdir(args.atlas) and os.path.exists(args.atlas):
-        try:
-            # If it's a local path, we assume it's a config file and we load the config directly from it
-            with open(os.path.join(args.atlas, 'atlas.yaml'), 'r') as f:
-                atlas_config = yaml.safe_load(f)
-                atlas_local_path = args.atlas
-
-            # Print the header with atlas information and citations
-            print_header(atlas_config['metadata'])
-    
-        except Exception as e:
-            print(f"Error loading atlas configuration from local path: {e}")
-            return -1
-    else:
-        try:
-            # Fetch the atlas the user wants
-            df_meta = get_atlas_listing(match=args.atlas)
-            if len(df_meta) == 0:
-                print(f"Error: No atlases found matching '{args.atlas}'. Please check the atlas name and try again.")
-                return -1
-            elif len(df_meta) > 1:
-                print(f"Error: Multiple atlases found matching '{args.atlas}'. Please be more specific.")
-                return -1
-            
-            # Read the atlas configuration from the JSON metadata
-            atlas_config = json.loads(df_meta.iloc[0]['json'])
-            
-            # Print the header with atlas information and citations
-            print_header(atlas_config['metadata'])
-            
-            # Download the enture atlas snapshot
-            atlas_local_path = hf.snapshot_download(df_meta.iloc[0]['repo'])
-            
-        except Exception as e:
-            print(f"Error fetching atlas configuration from Hugging Face Hub: {e}")
-            return -1
         
+def _fetch_template(atlas_config : Dict[str,Any]) -> str:
     # Fetch the template from Hugging Face Hub if specified in the atlas config
     template_hf = atlas_config.get('template', {}).get('hf', None)
     if template_hf:
-        try:
-            template_path = hf.snapshot_download(template_hf)
-        except Exception as e:
-            print(f"Error fetching template from Hugging Face Hub: {e}")
-            return -1
+        template_path = hf.snapshot_download(template_hf)
     else:
         template_path = atlas_config.get('template', {}).get('local', None)
         if template_path is None:
-            print("Error: No template specified in atlas configuration. Please check the atlas configuration and try again.")
-            return -1
+            raise ValueError("No template specified in atlas configuration. Please check the atlas configuration and try again.")
         
+    return template_path
+
+
+def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_local_path:str, training:bool=False):
+    
     # Set up the atlas configuration the way Yue's code expects it
     config_src = atlas_config['config']
     config_src['TEST_PATH'] = args.workdir
-    config_src['TEMPLATE_PATH'] = os.path.join(template_path, 'hyperashs-template')
+    config_src['TEMPLATE_PATH'] = os.path.join(_fetch_template(atlas_config), 'hyperashs-template')
     config_src['ATLAS_PATH'] = atlas_local_path
     config_src['ITKSNAP_LABEL_FILE'] = os.path.join(atlas_local_path, 'itksnap_labels.txt')
     config_src['GREEDY_NUM_THREADS'] = args.threads
@@ -355,8 +327,50 @@ def run_segmentation(args) -> int:
     with open(os.path.join(args.workdir, 'config','global_0000_filenames.yaml'), 'wt') as f:
         f.write(_ashs_naming_scheme)
     
-    # Create the inferencer
+    # Create the config in the way that Yue's code expects it
     config = load_config(fn_config_yaml, 'test')
+    return config
+
+        
+
+def run_segmentation(args):
+    """Run the segmentation pipeline."""
+    
+    # Create a logger
+    os.makedirs(os.path.join(args.workdir, 'logs'), exist_ok=True)
+    logger = Logger(os.path.join(os.path.join(args.workdir, 'logs'), 'hyperashs_log.txt'))
+    
+    # First, the atlas may be either a local path to the atlas or a huggingface hub id.
+    atlas_local_path = None
+    if os.path.isdir(args.atlas) and os.path.exists(args.atlas):
+        # If it's a local path, we assume it's a config file and we load the config directly from it
+        with open(os.path.join(args.atlas, 'atlas.yaml'), 'r') as f:
+            atlas_config = yaml.safe_load(f)
+            atlas_local_path = args.atlas
+
+        # Print the header with atlas information and citations
+        print_header(atlas_config['metadata'])
+    else:
+        # Fetch the atlas the user wants
+        df_meta = get_atlas_listing(match=args.atlas)
+        if len(df_meta) == 0:
+            raise ValueError(f"Error: No atlases found matching '{args.atlas}'. Please check the atlas name and try again.")
+        elif len(df_meta) > 1:
+            raise ValueError(f"Error: Multiple atlases found matching '{args.atlas}'. Please be more specific.")
+            
+        # Read the atlas configuration from the JSON metadata
+        atlas_config = json.loads(df_meta.iloc[0]['json'])
+        
+        # Print the header with atlas information and citations
+        print_header(atlas_config['metadata'])
+        
+        # Download the enture atlas snapshot
+        atlas_local_path = hf.snapshot_download(df_meta.iloc[0]['repo'])
+                    
+    # Set up the atlas configuration the way Yue's code expects it
+    config = _setup_config(atlas_config, args, atlas_local_path, training=False)
+
+    # Create the inferencer
     tester = HyperASHSInference(config)
     
     # Create links in the working directory
@@ -380,5 +394,37 @@ def run_segmentation(args) -> int:
                                       save_intermediates=True, 
                                       overwrite_existing=~args.no_overwrite, 
                                       device=args.device)
+
+
+def run_training(args):
+    """Run the training pipeline."""
     
-    return 0
+    # Create a logger
+    os.makedirs(os.path.join(args.workdir, 'logs'), exist_ok=True)
+    logger = Logger(os.path.join(os.path.join(args.workdir, 'logs'), 'hyperashs_log.txt'))
+    
+    # Load the training configuration from the specified YAML file
+    try:
+        with open(os.path.join(args.config), 'r') as f:
+            atlas_config = yaml.safe_load(f)
+
+        # Print the header with atlas information and citations
+        print_header(atlas_config['metadata'])
+
+    except Exception as e:
+        print(f"Error loading atlas configuration: {e}")
+        return -1
+    
+    # Set up the atlas configuration the way Yue's code expects it
+    config = _setup_config(atlas_config, args, args.workdir, training=True)
+
+    # Create the training object
+    trainer = HyperASHSTraining(config)
+    
+    # Run preprocessing from the manifest file
+    trainer.preprocess_from_manifest_file(
+        manifest_file=args.manifest,
+        output_dir=args.workdir,
+        overwrite_existing=~args.no_overwrite,
+        save_intermediates=True, 
+        create_links=~args.no_links)
