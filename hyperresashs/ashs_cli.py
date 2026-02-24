@@ -102,9 +102,10 @@ template_to_3tt1: "template_to_mprage_warped.nii.gz"
 global_roi_in_3tt1_XYZ: "template_roi_XYZ_to_mprage_warped.nii.gz"
 
 # preprocessing
-primary: "primary.nii.gz"
-secondary: "secondary.nii.gz"
-seg: "seg.nii.gz"
+inr_primary: "primary.nii.gz"
+inr_secondary: "secondary.nii.gz"
+inr_seg: "primary_seg.nii.gz"
+seg: "input_primary_seg.nii.gz"
 hyper_primary: "hyper_primary.nii.gz"
 hyper_secondary: "hyper_secondary.nii.gz"
 reg_mat: "auxiluary_to_primary.mat"

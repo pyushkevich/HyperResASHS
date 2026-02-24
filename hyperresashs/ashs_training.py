@@ -80,7 +80,8 @@ class HyperASHSTraining:
     def preprocess_from_manifest_file(self, manifest_file: str, output_dir: str, 
                                       overwrite_existing=False, save_intermediates=False, create_links=True):
         """
-        Preprocess data for training from a manifest file. 
+        Preprocess data for training from a manifest file. Performs cropping and registration to prepare
+        data for INR upsampling and nnUNet training. 
         
         Parameters:
         -----------
@@ -102,7 +103,7 @@ class HyperASHSTraining:
         df = process_manifest(manifest_file)
 
         # Create a preprocessing/registration worker
-        reg = ASHSProcessor(self.config, 
+        reg = ASHSProcessor(self.config, training_mode=True,
                             overwrite_existing=overwrite_existing, 
                             save_intermediates=save_intermediates) 
         
@@ -120,7 +121,10 @@ class HyperASHSTraining:
             exp = ASHSExperimentBase(self.config, case_path, self.nm, subject=subject, date=date)
             
             # Link or copy the input files to the working directory folder
-            for col, dest in [('mprage', exp.gpe.t1_native), ('tse', exp.gpe.t2_whole_img)]:
+            for col, dest in [('mprage', exp.gpe.t1_native), 
+                              ('tse', exp.gpe.t2_whole_img),
+                              ('seg_left', exp.lpe['left'].input_seg),
+                              ('seg_right', exp.lpe['right'].input_seg)]:
                 copy_or_link_file(row[col], dest.filename, 
                                   create_links=create_links, force_overwrite=overwrite_existing)
             
@@ -130,9 +134,6 @@ class HyperASHSTraining:
             print('=' * 40)
             reg.preprocess(exp)
             
-            # For INR, do we want the T1 image to remain in original space, or do we want to register in to the TSE?
-            # Because if we register, then this kind of breaks the whole point of the INR, which is to be able to work with images 
-            # in their native space. Ideally, we would want to add a registration optimization inside of INR code itself, but
-            # that currently does not exist.
+            # At this point, we have the images registered, cropped, and prepared for both INR and nnUNet training.
              
             

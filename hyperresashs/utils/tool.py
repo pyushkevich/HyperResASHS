@@ -3,6 +3,7 @@ import numpy as np
 import os
 from batchgenerators.utilities.file_and_folder_operations import save_json, join
 from scipy.ndimage import label as ndi_label
+from scipy.linalg import polar
 from picsl_c3d import Convert3D
 import shutil
 
@@ -188,5 +189,46 @@ def copy_or_link_file(src, dst, create_links=True, force_overwrite=False):
         os.symlink(os.path.abspath(src), dst)
     else:
         shutil.copy(src, dst)
+        
+def get_nifti_sform_matrix(img:sitk.Image) -> np.ndarray:
+    """Get the NIFTI RAS-space affine transformation matrix from a SimpleITK image."""
+    # Get the direction cosines, spacing, and origin
+    m_dir = np.array(img.GetDirection()).reshape(3, 3)
+    m_scale = np.diag(np.array(img.GetSpacing()))
+    v_origin = np.array(img.GetOrigin())
+
+    # Convert from LPS to RAS by negating the first two axes
+    m_lps_to_ras = np.diag([-1, -1, 1]) 
+    
+    # Combine the transformations to get the affine matrix
+    A = m_lps_to_ras @ m_dir @ m_scale    
+    b = m_lps_to_ras @ v_origin
+    
+    # Construct 4x4 homogeneous matrix
+    M = np.eye(4)
+    M[:3, :3] = A
+    M[:3, 3] = b
+
+    # Return the matrix
+    return M
+
+def set_nifti_sform_matrix(img:sitk.Image, M:np.ndarray):
+    """Set the NIFTI RAS-space affine transformation matrix for a SimpleITK image."""
+    # Extract the rotation+scaling (A) and translation (b) components from the input matrix
+    A = M[:3, :3]
+    b = M[:3, 3]
+
+    # Convert from RAS to LPS by negating the first two axes
+    m_ras_to_lps = np.diag([-1, -1, 1])
+    A_lps = m_ras_to_lps @ A
+    b_lps = m_ras_to_lps @ b
+    
+    # Compute polar decomposition to split A_lps into rotation and scaling components
+    U, P = polar(A_lps)
+
+    # Set the direction cosines, spacing, and origin based on the input matrix
+    img.SetDirection(U.flatten())
+    img.SetSpacing(P.diagonal())
+    img.SetOrigin(b_lps)
 
     

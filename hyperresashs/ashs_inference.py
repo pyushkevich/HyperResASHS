@@ -3,6 +3,7 @@ from os.path import join
 from .utils.upsample_inr_method import create_link
 from .utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment_in_memory
 from .utils.trim_neck import trim_neck_in_memory
+from .utils.tool import get_nifti_sform_matrix, set_nifti_sform_matrix
 from picsl_greedy import Greedy3D
 from picsl_c3d import Convert3D
 import yaml
@@ -159,8 +160,8 @@ class LocalPipelineElements:
         # Images and matrices generated during preprocessing
         self.roi_in_t1_space = LazyImage(join(case_path, nm.global_roi_in_3tt1_XYZ.replace('XYZ', side)))
         self.fn_save_mat_path_t2_to_t1_local = join(self.dir_local, nm.reg_mat)
-        self.t2_patch_native = LazyImage(join(self.dir_local, nm.hyper_primary))
-        self.t1_patch_warped = LazyImage(join(self.dir_local, nm.hyper_secondary_after_registertion))
+        self.t2_patch_hyperres = LazyImage(join(self.dir_local, nm.hyper_primary))
+        self.t1_patch_warped_hyperres = LazyImage(join(self.dir_local, nm.hyper_secondary_after_registertion))
         self.fn_registration_qc = join(self.dir_local, f'registration_qc.png')
         
         # NNUNet input and output
@@ -171,6 +172,12 @@ class LocalPipelineElements:
         
         # Final post-processed segmentation
         self.t2_seg_native = LazyImage(join(self.dir_local, f'hyperashs_seg_{side}_to_t2orig.nii.gz'))
+        
+        # For training/INR, the primary and secondary modalities cropped at native resolution
+        self.input_seg = LazyImage(join(self.dir_local, nm.seg))
+        self.inr_primary = LazyImage(join(self.dir_local, nm.inr_primary))
+        self.inr_secondary = LazyImage(join(self.dir_local, nm.inr_secondary))
+        self.inr_seg = LazyImage(join(self.dir_local, nm.inr_seg))
         
         
 class ASHSExperimentBase:
@@ -206,12 +213,18 @@ def default_progress_callback(progress: float|None=None,
         
 class ASHSProcessor:
     """Common code for preprocessing T2/T1 pairs to generate ROIs for inference/training"""
-    def __init__(self, config, overwrite_existing=False, save_intermediates=True):
+    def __init__(self, config, training_mode=False, overwrite_existing=False, save_intermediates=True):
+        self.training_mode = training_mode
         self.overwrite_existing = overwrite_existing
         self.save_intermediates = save_intermediates
         self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', 0.2)
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
-        self.tm_neck, self.tm_reg_t1_t2_whole, self.tm_reg_t1_temp, self.tm_reg_t1_t2_local, self.tm_finalize = Timer(), Timer(), Timer(), Timer(), Timer()
+        self.tm_neck = Timer()
+        self.tm_reg_t1_t2_whole = Timer()
+        self.tm_reg_t1_temp = Timer()
+        self.tm_reg_t1_t2_local = Timer()
+        self.tm_prep_inr = Timer()
+        self.tm_finalize = Timer()
         
     def preprocess(self, exp: ASHSExperimentBase, callback: ProgressCallbackType = default_progress_callback, progress_range=(0.0, 0.25)):
         """
@@ -229,9 +242,9 @@ class ASHSProcessor:
             
         callback(progress=0.2, progress_range=progress_range, 
                  message=f"Neck trimming completed in {self.tm_neck.total:.1f} s.")
-                
+        
         # Check if nnUNet inputs already exist, and if not, perform the registration steps
-        if self.overwrite_existing or not all(lp.t2_patch_native.exists() and lp.roi_in_t1_space.exists() for lp in lpe.values()):
+        if self.overwrite_existing or not all(lp.t2_patch_hyperres.exists() and lp.roi_in_t1_space.exists() for lp in lpe.values()):
             
             # ------- global T1 to T2 registration using ASHS pipeline -------
             with self.tm_reg_t1_t2_whole:
@@ -322,24 +335,24 @@ class ASHSProcessor:
                     c3d.push(t1_roi[side_])
                     c3d.execute(f'-popas ROI_T1 -as T2 -push ROI_T1 -reslice-matrix {gpe.fn_save_mat_path_t2_to_t1_global} -trim 5vox '
                                 f'-resample {scaling_str} -as ROI_T2 -dup -push T2 -reslice-identity -swapdim RPI')
-                    lp.t2_patch_native.data = c3d.peek(-1)
+                    lp.t2_patch_hyperres.data = c3d.peek(-1)
                     roi_t2 = c3d.peek(-2)
 
                     # Write out the cropped T2 image and create links for nnUNet input
-                    create_link(lp.t2_patch_native.filename, lp.hl_nnunet_t2_input)
+                    create_link(lp.t2_patch_hyperres.filename, lp.hl_nnunet_t2_input)
                                     
                     # Compute local registration between T2 and T1
                     g.execute(f'-threads {nt} -z -a -dof 6 -ia {gpe.fn_save_mat_path_t2_to_t1_global} -m NMI '
                             f'-i t2 t1 -gm mask -n 100x50 -o {lp.fn_save_mat_path_t2_to_t1_local} ', 
-                            t2=lp.t2_patch_native.data, t1=gpe.t1_neck_trim.data, mask=roi_t2)
+                            t2=lp.t2_patch_hyperres.data, t1=gpe.t1_neck_trim.data, mask=roi_t2)
                     
                     # Apply the registration to the T1 and resample it into the isotropic space
                     g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
                             f'-r {lp.fn_save_mat_path_t2_to_t1_local}', t1_reg_to_t2=None)
-                    lp.t1_patch_warped.data = g['t1_reg_to_t2']
+                    lp.t1_patch_warped_hyperres.data = g['t1_reg_to_t2']
 
                     # Write out the cropped T1 and create link for nnUNet input
-                    create_link(lp.t1_patch_warped.filename, lp.hl_nnunet_t1_input)
+                    create_link(lp.t1_patch_warped_hyperres.filename, lp.hl_nnunet_t1_input)
                     
                     # For QC purposes, map template all the way to T2 space
                     g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "
@@ -349,14 +362,51 @@ class ASHSProcessor:
                     # Generate registration QC screenshot
                     generate_ashs_registration_qc(
                         template_img=g['template_to_t2'],
-                        t1_to_t2=lp.t1_patch_warped.data,
-                        t2_img=lp.t2_patch_native.data,
+                        t1_to_t2=lp.t1_patch_warped_hyperres.data,
+                        t2_img=lp.t2_patch_hyperres.data,
                         output_path=lp.fn_registration_qc,
                         title=f"{exp.qc_title} Registration QC - {side_.capitalize()}")
         else:
             print(f"NNUNet input patches already exist for both sides. Skipping registration and cropping steps.")
-        
-        t_total = self.tm_reg_t1_t2_whole.total + self.tm_reg_t1_temp.total + self.tm_reg_t1_t2_local.total
+            
+        # In training mode, we also need to prepare patches for INR
+        if self.training_mode:
+            with self.tm_prep_inr:
+
+                # Use the input segmentation to crop the T2 image at native resolution. How much padding to apply
+                # is not obvious - we want to provide some context, but not too much to keep the computation reasonable
+                for side_, lp in lpe.items():
+                    c3d = Convert3D()
+                    c3d.execute(f'-threads {nt}')
+                    
+                    # Crop the primary image
+                    c3d.push(gpe.t2_whole_img.data)
+                    c3d.push(lp.input_seg.data)
+                    c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI')
+                    lp.inr_primary.data = c3d.peek(-1)
+                    
+                    # Crop the secondary image. Here we first need to define the ROI in the T1 space
+                    # and then use it to crop the T1 image. The Greedy command applies rigid transform
+                    # to send the T2 segmentation into the T1 image space.  
+                    g = Greedy3D()
+                    g.execute(f'-threads {nt} -ri 0 -rf t1 -rm seg seg_in_t1 -r {lp.fn_save_mat_path_t2_to_t1_local},-1', 
+                            t1=gpe.t1_neck_trim.data, seg=lp.input_seg.data, seg_in_t1=None)
+                    
+                    # Now crop the secondary image using the segmentation
+                    c3d.push(gpe.t1_neck_trim.data)
+                    c3d.push(g['seg_in_t1'])
+                    c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI')
+                    t1_native_patch = c3d.peek(-1)
+                    
+                    # Finally, we should correct the header of the secondary image to incorporate the rigid 
+                    # registration, otherwise INR will be confounded by the misalignment between the two modalities.
+                    S = get_nifti_sform_matrix(t1_native_patch)
+                    M = np.loadtxt(lp.fn_save_mat_path_t2_to_t1_local)
+                    S_new = np.linalg.inv(M) @ S
+                    set_nifti_sform_matrix(t1_native_patch, S_new)
+                    lp.inr_secondary.data = t1_native_patch
+                    
+        t_total = self.tm_reg_t1_t2_whole.total + self.tm_reg_t1_temp.total + self.tm_reg_t1_t2_local.total + self.tm_prep_inr.total
         callback(progress=1.0, progress_range=progress_range, 
                     attachments={f'{side_.capitalize()} Registration QC': lp.fn_registration_qc for side_, lp in lpe.items()},
                     message=f"Registration and ROI cropping completed in {t_total:.1f} s.")
@@ -878,8 +928,8 @@ class HyperASHSInference():
                     # Generate a QC screenshot for the nnUNet output
                     generate_ashs_segmentation_qc(
                         seg = lp.nnunet_seg.data,
-                        t1 = lp.t1_patch_warped.data,
-                        t2 = lp.t2_patch_native.data,
+                        t1 = lp.t1_patch_warped_hyperres.data,
+                        t2 = lp.t2_patch_hyperres.data,
                         label_file = self.label_file,
                         output_path = lp.fn_segmentation_qc,
                         title = f"{exp.qc_title} Segmentation QC - {side_.capitalize()}")
