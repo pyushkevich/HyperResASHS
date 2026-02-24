@@ -16,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from typing import Protocol, Dict, Literal, Type, Callable, Any, Tuple
-
+import sys
 
 
 class LazyPipelineElement:
@@ -224,7 +224,9 @@ class ASHSProcessor:
         if self.overwrite_existing or not gpe.t1_neck_trim.exists():
             with self.tm_neck:
                 gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data, verbose=True)
-                    
+        else:
+            print(f"Neck-trimmed T1 already exists at {gpe.t1_neck_trim.filename}. Skipping neck trimming step.")
+            
         callback(progress=0.2, progress_range=progress_range, 
                  message=f"Neck trimming completed in {self.tm_neck.total:.1f} s.")
                 
@@ -351,6 +353,8 @@ class ASHSProcessor:
                         t2_img=lp.t2_patch_native.data,
                         output_path=lp.fn_registration_qc,
                         title=f"{exp.qc_title} Registration QC - {side_.capitalize()}")
+        else:
+            print(f"NNUNet input patches already exist for both sides. Skipping registration and cropping steps.")
         
         t_total = self.tm_reg_t1_t2_whole.total + self.tm_reg_t1_temp.total + self.tm_reg_t1_t2_local.total
         callback(progress=1.0, progress_range=progress_range, 

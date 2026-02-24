@@ -4,7 +4,7 @@ import os
 from batchgenerators.utilities.file_and_folder_operations import save_json, join
 from scipy.ndimage import label as ndi_label
 from picsl_c3d import Convert3D
-
+import shutil
 
 def flip_image(input_path, output_path, flip_axis):
     image_itk = sitk.ReadImage(input_path)
@@ -160,3 +160,33 @@ def linear_resample_to_spacing_using_itkimage(image_primary, new_spacing):
     resampled_image = c3d.peek(-1)
 
     return resampled_image
+
+def copy_or_link_file(src, dst, create_links=True, force_overwrite=False):
+    # Implement the following logic:
+    #   - If existing file is different mode than desired, delete it first
+    #   - If existing file is same mode as desired and is a file, and force_overwrite is False, skip copying/linking
+    #   - If existing file is same mode as desired and is a link, and force_overwrite is False, skip copying/linking but only if it's referencing the same source
+    if os.path.exists(dst):
+        if create_links and os.path.islink(dst):
+            existing_src = os.readlink(dst)
+            if existing_src == os.path.abspath(src) and not force_overwrite:
+                return
+            else:
+                print(f"Existing link at {dst} points to {existing_src}, which is different from desired source {src}. Removing it.")
+                os.remove(dst)
+        elif not create_links and os.path.isfile(dst):
+            if not force_overwrite:
+                return
+            else:
+                print(f"Existing file at {dst} will be overwritten.")
+                os.remove(dst)
+        else:
+            print(f"Existing file at {dst} is of a different type than desired. Removing it.")
+            os.remove(dst)
+            
+    if create_links:
+        os.symlink(os.path.abspath(src), dst)
+    else:
+        shutil.copy(src, dst)
+
+    

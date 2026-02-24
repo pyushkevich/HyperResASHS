@@ -2,6 +2,7 @@ from .ashs_inference import HyperASHSInference
 from .utils.huggingface import hf_disable_ssl_verification, hf_read_yaml
 from .ashs_training import HyperASHSTraining
 from .main import load_config
+from .utils.tool import copy_or_link_file
 from . import __version__
 import argparse
 import huggingface_hub as hf
@@ -374,15 +375,10 @@ def run_segmentation(args):
     tester = HyperASHSInference(config)
     
     # Create links in the working directory
-    for img_type, img_path in [('mprage', args.t1), ('tse', args.t2)]:
+    create_links, overwrite_existing = not args.no_links, not args.no_overwrite
+    for img_type, img_path in [('mprage', args.t1), ('tse', args.t2)]:        
         dest = os.path.join(args.workdir, f'{img_type}.nii.gz')
-        if os.path.exists(dest):
-            print(f"Warning: {dest} already exists. It will be overwritten.")
-            os.remove(dest)
-        if args.no_links:
-            shutil.copy(img_path, dest)
-        else:
-            os.symlink(os.path.abspath(img_path), dest)
+        copy_or_link_file(img_path, dest, create_links=create_links, force_overwrite=overwrite_existing)
             
     # Run the segmentation    
     print(f"Running HyperResASHS with:")
@@ -392,13 +388,15 @@ def run_segmentation(args):
     print(f"  Workdir: {args.workdir}")
     tester.run_inference_for_one_case(case_path=args.workdir, 
                                       save_intermediates=True, 
-                                      overwrite_existing=~args.no_overwrite, 
+                                      overwrite_existing=overwrite_existing, 
                                       device=args.device)
 
 
 def run_training(args):
     """Run the training pipeline."""
     
+    create_links, overwrite_existing = not args.no_links, not args.no_overwrite
+
     # Create a logger
     os.makedirs(os.path.join(args.workdir, 'logs'), exist_ok=True)
     logger = Logger(os.path.join(os.path.join(args.workdir, 'logs'), 'hyperashs_log.txt'))
@@ -425,6 +423,6 @@ def run_training(args):
     trainer.preprocess_from_manifest_file(
         manifest_file=args.manifest,
         output_dir=args.workdir,
-        overwrite_existing=~args.no_overwrite,
+        overwrite_existing=overwrite_existing,
         save_intermediates=True, 
-        create_links=~args.no_links)
+        create_links=create_links)

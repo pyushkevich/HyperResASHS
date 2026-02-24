@@ -18,6 +18,7 @@ from matplotlib.gridspec import GridSpec
 from typing import Protocol, Dict, Literal, Type, Callable, Any
 from .preprocessing import *
 from .ashs_inference import ASHSExperimentBase, ASHSProcessor
+from .utils.tool import copy_or_link_file
 import pandas as pd
 
 
@@ -99,7 +100,6 @@ class HyperASHSTraining:
             - 'seg_right': Path to the right hemisphere segmentation for the case
         """
         df = process_manifest(manifest_file)
-        print(df)
 
         # Create a preprocessing/registration worker
         reg = ASHSProcessor(self.config, 
@@ -121,14 +121,8 @@ class HyperASHSTraining:
             
             # Link or copy the input files to the working directory folder
             for col, dest in [('mprage', exp.gpe.t1_native), ('tse', exp.gpe.t2_whole_img)]:
-                img_path = row[col]
-                if os.path.exists(dest.filename):
-                    print(f"Warning: {dest} already exists. It will be overwritten.")
-                    os.remove(dest.filename)
-                if create_links:
-                    shutil.copy(img_path, dest.filename)
-                else:
-                    os.symlink(os.path.abspath(img_path), dest.filename)
+                copy_or_link_file(row[col], dest.filename, 
+                                  create_links=create_links, force_overwrite=overwrite_existing)
             
             # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
             print('=' * 40)
