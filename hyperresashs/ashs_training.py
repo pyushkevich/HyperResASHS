@@ -17,7 +17,8 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from typing import Protocol, Dict, Literal, Type, Callable, Any
 from .preprocessing import *
-from .ashs_inference import ASHSExperimentBase, ASHSProcessor
+from .ashs_exp import ASHSExperimentBase
+from .ashs_preproc import ASHSProcessor
 from .utils.tool import copy_or_link_file
 import pandas as pd
 
@@ -57,7 +58,7 @@ def process_manifest(manifest_csv: str) -> pd.DataFrame:
         if not os.path.isabs(path):
             path = os.path.join(manifest_dir, path)
         if not os.path.exists(path):
-            raise FileNotFoundError(f"File does not exist at row {i+1}, column '{col}': {path}")
+            raise FileNotFoundError(f"File specified in manifest .csv does not exist': {path}")
         return path
         
     for col in ['tse', 'mprage', 'seg_left', 'seg_right']:
@@ -99,6 +100,19 @@ class HyperASHSTraining:
             - 'mprage': Path to the MPRAGE image for the case
             - 'seg_left': Path to the left hemisphere segmentation for the case
             - 'seg_right': Path to the right hemisphere segmentation for the case
+            
+        Output directory structure:
+        ---------------
+        The function will create a subdirectory for each case in the output directory, with the following structure:
+            output_dir/
+                preproc/
+                    subject1/
+                        date1/
+                            Preprocessed files for subject1 date1 (e.g., registered TSE, MPRAGE, segmentations) 
+                inr_training/
+                    subject1_date1/
+                        Files prepared for INR training (e.g., cropped TSE, MPRAGE, segmentations)
+                        
         """
         df = process_manifest(manifest_file)
 
@@ -107,18 +121,24 @@ class HyperASHSTraining:
                             overwrite_existing=overwrite_existing, 
                             save_intermediates=save_intermediates) 
         
+        # Define top-level folders for preprocessed data and INR training data
+        dir_preproc = join(output_dir, 'preproc')
+        dir_inr_training = join(output_dir, 'inr_training')
+        
+        # Create the experiments and paths for each case
+        d_exp = {}
         for i, (_,row) in enumerate(df.iterrows()):
             
             subject, date = str(row['id']), str(row['date']) if 'date' in row else 'nodate'
             
             # Create a folder in the output directory for this case
-            case_path = join(output_dir, subject, date, 'preproc')
+            case_path = join(dir_preproc, subject, date)
             os.makedirs(case_path, exist_ok=True)
             
-            # TODO: redirect stdout/stderr to a log file for this specific case
-            
             # Create the ASHS experiment representation
-            exp = ASHSExperimentBase(self.config, case_path, self.nm, subject=subject, date=date)
+            exp = d_exp[(subject,date)] = ASHSExperimentBase(self.config, case_path, self.nm, 
+                                                             subject=subject, date=date, 
+                                                             inr_path={side: join(dir_inr_training, f'{subject}_{date}_{side}') for side in ['left', 'right']})
             
             # Link or copy the input files to the working directory folder
             for col, dest in [('mprage', exp.gpe.t1_native), 
@@ -127,13 +147,16 @@ class HyperASHSTraining:
                               ('seg_right', exp.lpe['right'].input_seg)]:
                 copy_or_link_file(row[col], dest.filename, 
                                   create_links=create_links, force_overwrite=overwrite_existing)
-            
+                
+        # Perform initial processing steps for each case (registration, INR preprocessing, and nnUNet preprocessing)
+        for i, ((subject, date), exp) in enumerate(d_exp.items()):
             # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
             print('=' * 40)
             print(f'Preprocessing case {i+1}/{len(df)}: {subject} - {date}')
             print('=' * 40)
             reg.preprocess(exp)
+            reg.prepare_inr(exp)
             
-            # At this point, we have the images registered, cropped, and prepared for both INR and nnUNet training.
+        # At this point, we have the images registered, cropped, and prepared for both INR and nnUNet training.
              
             
