@@ -78,3 +78,8 @@ hrashs = "hyperresashs.ashs_cli:main"
 
 [tool.setuptools]
 packages = ["hyperresashs"]
+
+[tool.setuptools.package-data]
+hyperresashs = [
+    "config_templates/*.yaml"
+]

@@ -1,2 +1,2 @@
-from .main import main
+from .ashs_cli import main
 main()

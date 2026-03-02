@@ -1,5 +1,5 @@
 from .ashs_inference import HyperASHSInference
-from .utils.huggingface import hf_disable_ssl_verification, hf_read_yaml
+from .utils.huggingface import hf_disable_ssl_verification, hf_read_yaml, torch_hub_disable_ssl_verification
 from .ashs_training import HyperASHSTraining
 from .main import load_config
 from .utils.tool import copy_or_link_file
@@ -110,6 +110,7 @@ hyper_primary: "hyper_primary.nii.gz"
 hyper_secondary: "hyper_secondary.nii.gz"
 reg_mat: "auxiluary_to_primary.mat"
 hyper_secondary_after_registertion: "auxiluary_to_primary_registered.nii.gz"
+hyper_primary_seg: "inr_hyper_primary_seg.nii.gz"
 """
 
 
@@ -148,6 +149,21 @@ def main():
                               help='Path to training configuration YAML file. See documentation for expected format.')
     train_parser.add_argument('-m', '--manifest', type=str, required=True, 
                               help='Path to manifest CSV file describing the training dataset. See documentation for expected format.')
+    train_parser.add_argument('-s', '--stage', type=str, default='',
+                              help='''
+                              Run one or more selected stages of the training pipeline.
+                              You can specify single stage as -s 1, or a range of stages as -s 1-3.
+                              The stages are as follows:
+                                1: Preprocessing (neck trim, registration, patch extraction)
+                                2: INR training
+                                3: nnU-Net training                                
+                              ''')
+    train_parser.add_argument('-F', '--filter', type=str, metavar='REGEX' ,default=None,
+                              help='''Restrict execution to image(s) that match specified regular expression. 
+                              For stage 1 (preprocessing), REGEX will be matched to subject id and date.
+                              For stage 2 (INR training), REGEX will be matched to subject id, date, and side.
+                              For stage 3 (nnU-Net training), this is ignored.
+                              ''')
 
     # Add common arguments for run and train subcommands
     for p in [run_parser, train_parser]:
@@ -172,6 +188,7 @@ def main():
     # Disable SSL verification if requested
     if args.disable_ssl_verification:
         hf_disable_ssl_verification()
+        torch_hub_disable_ssl_verification()
     
     # Handle commands
     if args.command == 'list':
@@ -416,14 +433,32 @@ def run_training(args):
     
     # Set up the atlas configuration the way Yue's code expects it
     config = _setup_config(atlas_config, args, args.workdir, training=True)
+    
+    # Process the stage argument to determine which stages to run
+    stage_no = set()
+    if args.stage:
+        for part in args.stage.split(','):
+            if '-' in part:
+                start, end = map(int, part.split('-'))
+                stage_no.update(range(start, end + 1))
+            else:
+                stage_no.add(int(part))
+    else:
+        stage_no = {1, 2, 3}  # Default to running all stages if not specified
+    stages = set( {1: 'preproc', 2: 'inr', 3: 'nnunet'}[s] for s in stage_no )
 
     # Create the training object
-    trainer = HyperASHSTraining(config)
+    trainer = HyperASHSTraining(config, 
+                                manifest_file=args.manifest,
+                                output_dir=args.workdir,
+                                overwrite_existing=overwrite_existing,
+                                save_intermediates=True, 
+                                create_links=create_links)
     
     # Run preprocessing from the manifest file
-    trainer.preprocess_from_manifest_file(
-        manifest_file=args.manifest,
-        output_dir=args.workdir,
-        overwrite_existing=overwrite_existing,
-        save_intermediates=True, 
-        create_links=create_links)
+    if 'preproc' in stages:
+        trainer.preprocess(filter=args.filter)
+    if 'inr' in stages:
+        trainer.train_inr(filter=args.filter, device=args.device)
+    if 'nnunet' in stages:
+        pass

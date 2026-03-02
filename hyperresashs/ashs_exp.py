@@ -164,10 +164,18 @@ class LocalPipelineElements:
         # For training/INR, the primary and secondary modalities cropped at native resolution
         self.input_seg = LazyImage(join(self.dir_local, nm.seg))
         self.inr_primary = LazyImage(join(self.dir_local, nm.inr_primary))
+        self.inr_primary_mask = LazyImage(join(self.dir_local, 'primary_mask.nii.gz'))
+        self.inr_primary_gt = LazyImage(join(self.dir_local, 'primary_gt.nii.gz'))
         self.inr_secondary = LazyImage(join(self.dir_local, nm.inr_secondary))
+        self.inr_secondary_mask = LazyImage(join(self.dir_local, 'secondary_mask.nii.gz'))
+        self.inr_secondary_gt = LazyImage(join(self.dir_local, 'secondary_gt.nii.gz'))
         self.inr_seg = LazyImage(join(self.dir_local, nm.inr_seg))
+        self.inr_inference_mask = LazyImage(join(self.dir_local, 'inr_inference_mask.nii.gz'))
         
-        
+        # After INR upsampling is done, the upsampled segmentation is resampled into the space of the
+        # T2 hyper-resolution patch.
+        self.t2_patch_hyperres_seg = LazyImage(join(self.dir_local, nm.hyper_primary_seg))
+                
 class ASHSExperimentBase:
     def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
                  sides=['left', 'right'], subject:str|None=None, date:str|None=None,

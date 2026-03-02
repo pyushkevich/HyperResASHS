@@ -276,6 +276,24 @@ class ASHSProcessor:
         self.tm_reg_t1_t2_local = Timer()
         self.tm_prep_inr = Timer()
         self.tm_finalize = Timer()
+
+
+    def get_close_to_iso_integer_scaling(self, image : sitk.Image):
+        """
+        Generate a c3d scaling command that will make this image close to isotropic while
+        scaling the largest dimension by integer factors. For example, input with spacing
+        (0.41,0.39,2.0) will generate scaling command '100x100x500'
+        
+        Integer scaling is desirable if we want to be able to downsample segmentations back
+        to original spacing of the image. But, of course, resulting images may not be very
+        isotropuic
+        """             
+        in_spacing = np.array(image.GetSpacing())
+        s_min = np.min(in_spacing)
+        scaling = np.floor(in_spacing / s_min + 0.5)
+        scaling_str = 'x'.join([f'{100*s}' for s in scaling]) + '%'
+        return scaling_str
+
         
     def preprocess(self, exp: ASHSExperimentBase, callback: ProgressCallbackType = default_progress_callback, progress_range=(0.0, 0.25)):
         """
@@ -370,14 +388,7 @@ class ASHSProcessor:
                 for side_, lp in lpe.items():
                                             
                     # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
-                    t2_original_spacing = np.array(t2_cropped_img.GetSpacing())
-                    spc_order = np.argsort(t2_original_spacing)
-                    spc_sorted = np.array([t2_original_spacing[i] for i in spc_order])
-                    spc_var = np.array([
-                        np.std(np.array([spc_sorted[0], spc_sorted[1], spc_sorted[2] / (k+1)])) for k in range(10)])
-                    scaling = np.ones(3)
-                    scaling[spc_order[-1]] = np.argmin(spc_var)+1
-                    scaling_str = 'x'.join([f'{100*s}' for s in scaling]) + '%'
+                    scaling_str = self.get_close_to_integer_scaling(t2_cropped_img)
                     print(f'Original T2 spacing: {t2_original_spacing}, Scaling factors: {scaling_str}')              
                                     
                     # Crop the T2 using the T1 ROI and apply the new spacing
@@ -439,12 +450,18 @@ class ASHSProcessor:
                 # Crop the primary image
                 c3d.push(gpe.t2_whole_img.data)
                 c3d.push(lp.input_seg.data)
-                c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI')
+                c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI -as T2P')
                 lp.inr_primary.data = c3d.peek(-1)
                 
-                # Write out the segmentation
-                c3d.execute(f'-push S -swapdim RPI')
-                lp.inr_seg.data = c3d.peek(-1)
+                # Upsample this image to near-isotropic spacing (this is the INR 'ground truth'?)
+                scale_cmd = self.get_close_to_iso_integer_scaling(lp.inr_primary.data)
+                c3d.execute(f'-int 1 -resample {scale_cmd} -as T2GT')
+                lp.inr_primary_gt.data = c3d.peek(-1)
+                
+                # Write out the segmentation and dummy mask
+                c3d.execute(f'-clear -push S -swapdim RPI -push S -scale 0 -shift 1 -as T2M')
+                lp.inr_seg.data = c3d.peek(-2)
+                lp.inr_primary_mask.data = c3d.peek(-1)
                 
                 # Crop the secondary image. Here we first need to define the ROI in the T1 space
                 # and then use it to crop the T1 image. The Greedy command applies rigid transform
@@ -467,16 +484,38 @@ class ASHSProcessor:
                 set_nifti_sform_matrix(t1_native_patch, S_new)
                 lp.inr_secondary.data = t1_native_patch
                 
-                # Populate the links for the INR training directory
-                if exp.inr_path is not None:
-                    os.makedirs(exp.inr_path, exist_ok=True)
-                    
-                    # T2 patch in native space
-                    copy_or_link_file(lp.inr_primary.filename, join(exp.inr_path, f'{side_}_t2_patch.nii.gz'), create_links=True)
-                    
-                    # T2 patch segmentation in native space
-                    
+                # Resample the T2 mask into the t1 native patch space
+                c3d.push(lp.inr_secondary.data)
+                c3d.execute(f'-as T1P -push T2M -int 0 -reslice-identity')
+                lp.inr_secondary_mask.data = c3d.peek(-1)
                 
+                # Also generate the target-resolution T1 image
+                c3d.execute(f'-push T2GT -push T1P -int 0 -reslice-identity')
+                lp.inr_secondary_gt.data = c3d.peek(-1)
+                
+                # And finally the mask for the INR inference - perhaps we can in the future 
+                # limit this to just the area around the segmentation, why upsample whole patch?
+                c3d.execute(f'-push T2GT -scale 0 -shift 1')
+                lp.inr_inference_mask.data = c3d.peek(-1)
+                
+                # Populate the links for the INR training directory
+                if lp.dir_inr_train_input is not None:
+                    d_inr:str = lp.dir_inr_train_input
+                    os.makedirs(d_inr, exist_ok=True)
+                    
+                    # Create all the links
+                    for dst, src in {
+                        't2_LR': lp.inr_primary.filename,               # Native T2 patch
+                        't2_seg_LR': lp.inr_seg.filename,               # Native T2 segmentation
+                        't2_mask_LR': lp.inr_primary_mask.filename,     # All ones
+                        't1_LR': lp.inr_secondary.filename,             # Native T1 match, header adjusted
+                        't1_seg_LR': lp.inr_secondary_mask.filename,    # Same as T1 mask below
+                        't1_mask_LR': lp.inr_secondary_mask.filename,   # Region of overlap T2 on T1
+                        't2': lp.inr_primary_gt.filename,               # Resampled T2 patch at target resolution (INR GT)
+                        't1': lp.inr_secondary_gt.filename,             # Resampled T1 patch at target resolution (INR GT)
+                        'brainmask': lp.inr_inference_mask.filename     # Inferencing mask
+                    }.items():
+                        copy_or_link_file(src, join(lp.dir_inr_train_input, f'{side_}_{dst}.nii.gz'), create_links=True)
                 
         callback(progress=1.0, progress_range=progress_range, 
                  message=f"INR preprocessing cropping completed in {self.tm_prep_inr.total:.1f} s.")

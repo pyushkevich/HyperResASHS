@@ -12,6 +12,10 @@ for key in to_remove:
 _submodule_path = os.path.join(os.path.dirname(__file__), "submodules", "nnUNet")
 sys.path.insert(0, _submodule_path)
 
+# Insert the submodule path at the front so it takes priority
+_submodule_path_inr = os.path.join(os.path.dirname(__file__), "submodules", "multi_contrast_inr")
+sys.path.insert(0, _submodule_path_inr)
+
 # Get the version from python importlib
 try:
     # Replace 'your_package_name' with the actual name of your package

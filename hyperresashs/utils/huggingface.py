@@ -16,6 +16,12 @@ def hf_disable_ssl_verification():
         import httpx
         hf.set_client_factory(lambda : httpx.Client(verify=False))
         
+        
+# Also configure PyTorch to ignore SSL verification warnings when downloading models
+def torch_hub_disable_ssl_verification():
+    import ssl
+    ssl._create_default_https_context = ssl._create_unverified_context
+        
 
 def hf_read_yaml(repo_id:str, filename:str):
     """Read a YAML file from the Hugging Face Hub."""
