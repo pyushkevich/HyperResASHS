@@ -1,7 +1,6 @@
 from .ashs_inference import HyperASHSInference
 from .utils.huggingface import hf_disable_ssl_verification, hf_read_yaml, torch_hub_disable_ssl_verification
 from .ashs_training import HyperASHSTraining
-from .main import load_config
 from .utils.tool import copy_or_link_file
 from . import __version__
 import argparse
@@ -149,6 +148,11 @@ def main():
                               help='Path to training configuration YAML file. See documentation for expected format.')
     train_parser.add_argument('-m', '--manifest', type=str, required=True, 
                               help='Path to manifest CSV file describing the training dataset. See documentation for expected format.')
+    train_parser.add_argument('-l', '--labels', type=str, required=True, 
+                              help='Path to ITK-SNAP label description file. See documentation for expected format.')
+    train_parser.add_argument('-x', '--xval', type=str, default=None,
+                              help='Cross-validation fold specification. See documentation for expected format.')
+    
     train_parser.add_argument('-s', '--stage', type=str, default='',
                               help='''
                               Run one or more selected stages of the training pipeline.
@@ -156,13 +160,15 @@ def main():
                               The stages are as follows:
                                 1: Preprocessing (neck trim, registration, patch extraction)
                                 2: INR training
-                                3: nnU-Net training                                
+                                3: nnU-Net preparation (resampling, cropping, and formatting for nnU-Net)
+                                4: nnU-Net training                                
                               ''')
     train_parser.add_argument('-F', '--filter', type=str, metavar='REGEX' ,default=None,
                               help='''Restrict execution to image(s) that match specified regular expression. 
                               For stage 1 (preprocessing), REGEX will be matched to subject id and date.
                               For stage 2 (INR training), REGEX will be matched to subject id, date, and side.
-                              For stage 3 (nnU-Net training), this is ignored.
+                              For stage 3 (nnU-Net preparation), this is ignored.
+                              For stage 4 (nnU-Net training), REGEX is matched to fold number (0-4)
                               ''')
 
     # Add common arguments for run and train subcommands
@@ -173,8 +179,10 @@ def main():
                        help='Do not overwrite existing results')
         p.add_argument('-t', '--threads', type=int, default=1, 
                        help='Number of parallel threads to use for segmentation [default: 1]')
-        p.add_argument('-d', '--device', type=str, 
-                       help='Device to use for segmentation (e.g. "cuda:0" or "cpu"). Default: auto-detect')
+        p.add_argument('--device', type=str, default='auto', 
+                       help='''Device to use for segmentation (e.g. "cuda" or "cpu"). Default: auto-detect
+                       To select specific GPU(s), use the CUDA_VISIBLE_DEVICES environment variable, e.g.:
+                         CUDA_VISIBLE_DEVICES=0 hrashs run ...''')
         p.add_argument('-L', '--no-links', action='store_true', 
                        help='Do not create symlinks in the working directory; copy files instead. By default, symlinks are created to the input T1 and T2 images in the working directory')
 
@@ -335,6 +343,8 @@ def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_
     config_src['ATLAS_PATH'] = atlas_local_path
     config_src['ITKSNAP_LABEL_FILE'] = os.path.join(atlas_local_path, 'itksnap_labels.txt')
     config_src['GREEDY_NUM_THREADS'] = args.threads
+    config_src['NNUNET_NUM_THREADS'] = args.threads
+    config_src['FILE_NAME_CONFIG'] = os.path.join(args.workdir, 'config','global_0000_filenames.yaml')
     
     # Write the config to the working directory
     os.makedirs(os.path.join(args.workdir, 'config'), exist_ok=True)
@@ -343,11 +353,12 @@ def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_
         yaml.dump(config_src, f)
         
     # Write the preferred naming scheme to the working directory
-    with open(os.path.join(args.workdir, 'config','global_0000_filenames.yaml'), 'wt') as f:
+    with open(config_src['FILE_NAME_CONFIG'], 'wt') as f:
         f.write(_ashs_naming_scheme)
     
     # Create the config in the way that Yue's code expects it
-    config = load_config(fn_config_yaml, 'test')
+    config = yaml.safe_load(open(fn_config_yaml, 'r'))
+    
     return config
 
         
@@ -445,11 +456,13 @@ def run_training(args):
                 stage_no.add(int(part))
     else:
         stage_no = {1, 2, 3}  # Default to running all stages if not specified
-    stages = set( {1: 'preproc', 2: 'inr', 3: 'nnunet'}[s] for s in stage_no )
+    stages = set( {1: 'preproc', 2: 'inr', 3: 'nnunet_prep', 4: 'nnunet_train'}[s] for s in stage_no )
 
     # Create the training object
     trainer = HyperASHSTraining(config, 
                                 manifest_file=args.manifest,
+                                label_file=args.labels,
+                                xval_file=args.xval,
                                 output_dir=args.workdir,
                                 overwrite_existing=overwrite_existing,
                                 save_intermediates=True, 
@@ -460,5 +473,7 @@ def run_training(args):
         trainer.preprocess(filter=args.filter)
     if 'inr' in stages:
         trainer.train_inr(filter=args.filter, device=args.device)
-    if 'nnunet' in stages:
-        pass
+    if 'nnunet_prep' in stages:
+        trainer.prepare_nnunet()
+    if 'nnunet_train' in stages:
+        trainer.train_nnunet(filter=args.filter, device=args.device)

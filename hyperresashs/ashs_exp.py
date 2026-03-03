@@ -136,7 +136,8 @@ class TemplatePipelineElements:
 
 
 class LocalPipelineElements:
-    def __init__(self, case_path:str, side:str, test_folder: str, nm: SimpleNamespace, inr_path: str|None=None):
+    def __init__(self, case_path:str, side:str, test_folder: str, nm: SimpleNamespace, 
+                 inr_path: str|None=None, nnunet_train_id: int|None = None):
         # Folders
         self.dir_local = join(case_path, test_folder, side)
         self.dir_nnunet_input = join(self.dir_local, 'input')
@@ -150,6 +151,7 @@ class LocalPipelineElements:
         self.fn_registration_qc = join(self.dir_local, f'registration_qc.png')
         
         # NNUNet input and output
+        self.nnunet_train_id = nnunet_train_id
         self.hl_nnunet_t2_input = join(self.dir_nnunet_input, 'MTL_000_0000.nii.gz')
         self.hl_nnunet_t1_input = join(self.dir_nnunet_input, 'MTL_000_0001.nii.gz')
         self.nnunet_seg = LazyImage(join(self.dir_nnunet_output, 'MTL_000.nii.gz'))
@@ -179,14 +181,17 @@ class LocalPipelineElements:
 class ASHSExperimentBase:
     def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
                  sides=['left', 'right'], subject:str|None=None, date:str|None=None,
-                 inr_path:Dict[str,str]|None=None):
+                 inr_path: Dict[str,str]|None=None, 
+                 nnunet_train_id: Dict[str,int]|None=None):
         self.config = config
         self.case_path = case_path
         self.inr_path = inr_path
+        self.nnunet_train_id = nnunet_train_id
         self.test_folder = 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME'])
         self.gpe = GlobalPipelineElements(case_path, nm)
         self.lpe = { side: LocalPipelineElements(case_path, side, self.test_folder, nm, 
-                                                 inr_path=inr_path[side] if inr_path is not None else None) 
+                                                 inr_path=inr_path[side] if inr_path is not None else None,
+                                                 nnunet_train_id=nnunet_train_id[side] if nnunet_train_id is not None else None) 
                     for side in sides }
         self.tpe = TemplatePipelineElements(config['TEMPLATE_PATH'], nm)
         self.subject = subject

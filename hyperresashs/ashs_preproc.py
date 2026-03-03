@@ -150,11 +150,96 @@ def generate_ashs_qc(
     plt.close(fig)
     
     
+class SegmentationLabelMap():
+    def __init__(self, 
+                 fn_itksnap_labels: str | None = None, 
+                 fn_dataset_json_file: str | None = None):
+        
+        self.fn_itksnap_labels = fn_itksnap_labels
+        if fn_itksnap_labels is not None:
+            self.labels = self._parse_itksnap_label_file(fn_itksnap_labels)
+        elif fn_dataset_json_file is not None:
+            self.labels = self._parse_nnunet_dataset_json(fn_dataset_json_file)
+        else:
+            raise ValueError("Either fn_itksnap_labels or fn_dataset_json_file must be provided.")
+        
+    def _parse_itksnap_label_file(self, fn_itksnap_labels: str) -> Dict[int, Dict[str, Any]]:
+        label_dict = {}
+        with open(fn_itksnap_labels, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    parts = line.split()
+                    label_id = int(parts[0])
+                    color = list(map(float, parts[1:4]))
+                    alpha = float(parts[4])
+                    name = ' '.join(parts[7:]).strip('"')
+                    label_dict[label_id] = {'color': color, 'alpha': alpha, 'name': name}
+        return label_dict
+    
+    def _parse_nnunet_dataset_json(self, fn_dataset_json_file: str) -> Dict[int, Dict[str, Any]]:
+        cmap = plt.get_cmap('tab20')
+        with open(fn_dataset_json_file, 'r') as f:
+            dataset_info = yaml.safe_load(f)
+        
+        label_dict = {}
+        for name, label_id in dataset_info.get('labels', {}).items():
+            if name == f'empty_label_{label_id}':
+                continue  # Skip empty labels
+            elif name == 'background':
+                label_dict[label_id] = {'color': [0.0, 0.0, 0.0], 'alpha': 0.0, 'name': name}  # Background is transparent
+            else:
+                color = [int(c*255) for c in cmap(label_id % 20)[:3]]
+                label_dict[label_id] = {'color': color, 'alpha': 1.0, 'name': name}  
+        
+        return label_dict
+    
+    def export_itksnap_label_file(self, output_path: str):
+        with open(output_path, 'w') as f:
+            for label_id, info in self.labels.items():
+                color = info['color']
+                alpha = info['alpha']
+                name = info['name']
+                f.write(f'{label_id} {color[0]} {color[1]} {color[2]} {alpha} {alpha} {alpha} "{name}"\n')
+                
+    def to_nnunet_dict_with_contiguous_labels(self):
+        nnunet_labels = {'background': 0}
+        max_label = max(self.labels.keys())
+        for label_id in range(1, max_label + 1):
+            name = self.labels.get(label_id, {}).get('name', f'empty_label_{label_id}')
+            nnunet_labels[name] = label_id
+        return nnunet_labels
+    
+    def oli_file(self):
+        """
+        Context manager that provides a temporary ITK-SNAP label file for this label set. 
+        If the label set was initialized with an ITK-SNAP label file, that file will be used directly. 
+        Otherwise, a temporary file will be created from the dataset.json information and deleted after use.
+        """
+        class OLIFile:
+            def __init__(self, labelset: SegmentationLabelMap):
+                self.labelset = labelset
+                
+            def __enter__(self):
+                if self.labelset.fn_itksnap_labels is not None:
+                    return self.labelset.fn_itksnap_labels
+                
+                self.tmp_file = tempfile.NamedTemporaryFile('w', delete=False, suffix='.txt')
+                self.labelset.export_itksnap_label_file(self.tmp_file.name)
+                return self.tmp_file.name
+            
+            def __exit__(self, exc_type, exc_value, traceback):
+                if hasattr(self, 'tmp_file'):
+                    os.remove(self.tmp_file.name)
+        
+        return OLIFile(self)
+    
+    
 def generate_ashs_segmentation_qc(
     seg: sitk.Image, 
     t1: sitk.Image, 
     t2:sitk.Image, 
-    label_file: str, 
+    labelset: SegmentationLabelMap,
     output_path: str,
     title: str|None = None,
     trim_margin_mm: float = 3.0):
@@ -163,38 +248,15 @@ def generate_ashs_segmentation_qc(
     t2 = normalize_and_reslice(t2, seg)
     t1 = normalize_and_reslice(t1, seg)
     
-    # Deal here with missing labelfile
-    fn_cleanup = None
-    if label_file is None:
-        print("Warning: No label file provided for QC generation, using default colors")
-        # Create a temporary label file with random colors
-        with tempfile.NamedTemporaryFile('w', delete=False, suffix='.txt') as tmp_label_file:
-            # Get all the unique labels in the segmentation
-            arr = sitk.GetArrayFromImage(seg)
-            labels = np.unique(arr)
-            
-            # Cycle through the matplotlib tab20 colormap for colors
-            cmap = plt.get_cmap('tab20')
-            for i, label in enumerate(labels):
-                if label == 0:
-                    color, alpha = (0,0,0), 0.0  # Background is transparent
-                else:
-                    color, alpha = [int(c*255) for c in cmap(i % 20)[:3]], 1
-                tmp_label_file.write(f'{label} {color[0]} {color[1]} {color[2]} {alpha} {alpha} {alpha} "Label {label}"\n')
-            label_file = tmp_label_file.name    
-            fn_cleanup = label_file  # Remember to delete this file later
-    
-    vols = {'t2': t2, 't1': t1, 
-            't2s': overlay_segmentation_on_image(t2, seg, label_file), 
-            't1s': overlay_segmentation_on_image(t1, seg, label_file)}
-    
-    generate_ashs_qc(vols, 
-                     row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 't2s': 'T2-seg', 't1s': 'T1-seg'},
-                     output_path=output_path, title=title)
-    
-    # Delete the temporary label file if we created one
-    if fn_cleanup is not None:
-        os.remove(fn_cleanup)
+    # Obtain a file for the c3d -oli command
+    with labelset.oli_file() as label_file:
+        vols = {'t2': t2, 't1': t1, 
+                't2s': overlay_segmentation_on_image(t2, seg, label_file), 
+                't1s': overlay_segmentation_on_image(t1, seg, label_file)}
+        
+        generate_ashs_qc(vols, 
+                        row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 't2s': 'T2-seg', 't1s': 'T1-seg'},
+                        output_path=output_path, title=title)    
     
 
 def generate_ashs_registration_qc(
@@ -388,8 +450,7 @@ class ASHSProcessor:
                 for side_, lp in lpe.items():
                                             
                     # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
-                    scaling_str = self.get_close_to_integer_scaling(t2_cropped_img)
-                    print(f'Original T2 spacing: {t2_original_spacing}, Scaling factors: {scaling_str}')              
+                    scaling_str = self.get_close_to_iso_integer_scaling(t2_cropped_img)
                                     
                     # Crop the T2 using the T1 ROI and apply the new spacing
                     c3d = Convert3D()

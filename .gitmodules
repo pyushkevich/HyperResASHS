@@ -4,5 +4,5 @@
 	branch = main
 [submodule "submodules/nnUNet"]
 	path = hyperresashs/submodules/nnUNet
-	url = https://github.com/liyue3780/nnUNet.git
+	url = https://github.com/pyushkevich/nnUNet.git
 	branch = mmseg

@@ -1,7 +1,7 @@
 import os
 from os.path import join
 from .ashs_exp import ASHSExperimentBase
-from .ashs_preproc import ASHSProcessor, generate_ashs_segmentation_qc, ProgressCallbackType, default_progress_callback, Timer
+from .ashs_preproc import ASHSProcessor, generate_ashs_segmentation_qc, ProgressCallbackType, default_progress_callback, Timer, SegmentationLabelMap
 import yaml
 from types import SimpleNamespace
 import torch
@@ -22,13 +22,18 @@ class HyperASHSInference():
         self.upsampling_method = config['UPSAMPLING_METHOD']
         self.dataset_id = config['EXP_NUM']
         self.trainer = config['TRAINER']
+        self.nnunet_model = self.config.get('MODEL_PATH')
+        self.dataset_json_path = join(self.nnunet_model, 'dataset.json')
        
         # Number of threads for Greedy
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
         
-        # Optional ITK-SNAP label file
-        self.label_file = config.get('ITKSNAP_LABEL_FILE')
-        print(f"Using label file for QC visualization: {self.label_file}")
+        # Read ITK-SNAP label mapping for visualization, either from the ITK-SNAP label file
+        # provided in the model (optional) or from the dataset.json of the nnUNet model.
+        self.labelset = SegmentationLabelMap(
+            fn_itksnap_labels=config.get('ITKSNAP_LABEL_FILE'), 
+            fn_dataset_json_file=self.dataset_json_path)
+
 
     def download_model_from_huggingface(self, hf_repo_id, target_path):
         try:
@@ -192,23 +197,23 @@ class HyperASHSInference():
                     predictor = nnUNetPredictor(verbose=True, device=torch_device)
                     
                     # Check if the path to the model is specified in config
-                    nnunet_model = self.config.get('MODEL_PATH')
-                    if not nnunet_model:                    
                     
-                        nnunet_model = join(os.environ.get("nnUNet_results",""), 
+                    if not self.nnunet_model:                    
+                    
+                        self.nnunet_model = join(os.environ.get("nnUNet_results",""), 
                                             f"Dataset{self.config['EXP_NUM']}_{self.config['MODEL_NAME']}", f"{self.config['TRAINER']}__nnUNetPlans__3d_fullres")
                         
-                        dataset_json_path = join(nnunet_model, 'dataset.json')
-                        plans_json_path = join(nnunet_model, 'plans.json')
-                        model_complete = (os.path.exists(dataset_json_path) and 
+                        
+                        plans_json_path = join(self.nnunet_model, 'plans.json')
+                        model_complete = (os.path.exists(self.dataset_json_path) and 
                                         os.path.exists(plans_json_path))
                         
                         if model_complete:
-                            fold_folders = [item for item in os.listdir(nnunet_model) 
-                                            if item.startswith('fold_') and os.path.isdir(join(nnunet_model, item))]
+                            fold_folders = [item for item in os.listdir(self.nnunet_model) 
+                                            if item.startswith('fold_') and os.path.isdir(join(self.nnunet_model, item))]
                             if fold_folders:
                                 for fold_folder in fold_folders:
-                                    checkpoint_path = join(nnunet_model, fold_folder, 'checkpoint_final.pth')
+                                    checkpoint_path = join(self.nnunet_model, fold_folder, 'checkpoint_final.pth')
                                     if not os.path.exists(checkpoint_path):
                                         model_complete = False
                                         break
@@ -218,19 +223,19 @@ class HyperASHSInference():
                         if not model_complete:
                             hf_repo_id = self.config.get('HF_MODEL_REPO')
                             if hf_repo_id:
-                                print(f"Model not found or incomplete at {nnunet_model}, downloading from Hugging Face...")
-                                self.download_model_from_huggingface(hf_repo_id, nnunet_model)
+                                print(f"Model not found or incomplete at {self.nnunet_model}, downloading from Hugging Face...")
+                                self.download_model_from_huggingface(hf_repo_id, self.nnunet_model)
                             else:
                                 raise FileNotFoundError(
-                                    f"Model not found or incomplete at {nnunet_model} and HF_MODEL_REPO not specified in config. "
+                                    f"Model not found or incomplete at {self.nnunet_model} and HF_MODEL_REPO not specified in config. "
                                     f"Please either:\n"
                                     f"  1. Place the trained model at the expected path, or\n"
                                     f"  2. Add HF_MODEL_REPO to your config file to enable automatic download from Hugging Face."
                                 )
                     
-                    use_folds = predictor.auto_detect_available_folds(nnunet_model, 'checkpoint_final.pth')
-                    dataset_json = load_json(join(nnunet_model, 'dataset.json'))
-                    plans = load_json(join(nnunet_model, 'plans.json'))
+                    use_folds = predictor.auto_detect_available_folds(self.nnunet_model, 'checkpoint_final.pth')
+                    dataset_json = load_json(join(self.nnunet_model, 'dataset.json'))
+                    plans = load_json(join(self.nnunet_model, 'plans.json'))
                     plans_manager = PlansManager(plans)
 
                     parameters = []
@@ -238,7 +243,7 @@ class HyperASHSInference():
                     inference_allowed_mirroring_axes = None
                     for i, f in enumerate(use_folds):
                         f = int(f) if f != 'all' else f
-                        checkpoint = torch.load(join(nnunet_model, f'fold_{f}', 'checkpoint_final.pth'),
+                        checkpoint = torch.load(join(self.nnunet_model, f'fold_{f}', 'checkpoint_final.pth'),
                                                 map_location=torch.device('cpu'), weights_only=False)
                         if i == 0:
                             configuration_name = checkpoint['init_args']['configuration']
@@ -283,7 +288,7 @@ class HyperASHSInference():
                         seg = lp.nnunet_seg.data,
                         t1 = lp.t1_patch_warped_hyperres.data,
                         t2 = lp.t2_patch_hyperres.data,
-                        label_file = self.label_file,
+                        labelset = self.labelset,
                         output_path = lp.fn_segmentation_qc,
                         title = f"{exp.qc_title} Segmentation QC - {side_.capitalize()}")
                         
