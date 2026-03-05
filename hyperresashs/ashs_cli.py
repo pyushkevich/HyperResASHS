@@ -188,6 +188,8 @@ def main():
                          CUDA_VISIBLE_DEVICES=0 hrashs run ...''')
         p.add_argument('-L', '--no-links', action='store_true', 
                        help='Do not create symlinks in the working directory; copy files instead. By default, symlinks are created to the input T1 and T2 images in the working directory')
+        p.add_argument('-T', '--tidy', action='store_true',
+                       help='Tidy mode. Reduce the number of intermediate files generated.')
 
     # Add -k flag for all relevant sub parsers
     for p in [list_parser, run_parser, describe_parser, train_parser]:
@@ -426,8 +428,9 @@ def run_segmentation(args):
     print(f"  T2:      {args.t2}")
     print(f"  Workdir: {args.workdir}")
     tester.run_inference_for_one_case(case_path=args.workdir, 
-                                      save_intermediates=True, 
+                                      save_intermediates=args.tidy is False, 
                                       overwrite_existing=overwrite_existing, 
+                                      create_links=create_links,
                                       device=args.device)
 
 
@@ -474,7 +477,7 @@ def run_training(args) -> int:
                                 xval_file=args.xval,
                                 output_dir=args.workdir,
                                 overwrite_existing=overwrite_existing,
-                                save_intermediates=True, 
+                                save_intermediates=args.tidy is False, 
                                 create_links=create_links)
     
     # Set up stages and validations for the training pipeline

@@ -56,6 +56,7 @@ class HyperASHSInference():
 
     def run_inference_for_one_case(self, case_path, subject:str|None=None, date:str|None=None,
                                    save_intermediates: bool = True, overwrite_existing: bool = False,
+                                   create_links: bool = True,
                                    callback: ProgressCallbackType = default_progress_callback, 
                                    device:str = 'auto'):
         
@@ -65,7 +66,8 @@ class HyperASHSInference():
         # Create a preprocessing/registration worker
         reg = ASHSProcessor(self.config, 
                             overwrite_existing=overwrite_existing, 
-                            save_intermediates=save_intermediates) 
+                            save_intermediates=save_intermediates, 
+                            create_links=create_links) 
 
         # create the folder for hyper-resolution inference
         hyper_test_path = join(case_path, self.test_folder)

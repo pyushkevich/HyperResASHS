@@ -248,7 +248,8 @@ class HyperASHSTraining:
         # Create a preprocessing/registration worker
         reg = ASHSProcessor(self.config, training_mode=True,
                             overwrite_existing=self.overwrite_existing, 
-                            save_intermediates=self.save_intermediates) 
+                            save_intermediates=self.save_intermediates, 
+                            create_links=self.create_links) 
         
         # Perform initial processing steps for each case (registration, INR preprocessing, and nnUNet preprocessing)
         d_filter = dict(self.filter_cases(filter))

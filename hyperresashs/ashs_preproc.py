@@ -22,10 +22,18 @@ import sys
 
 
 # Normalize a simple ITK image to 0-255 range
-def normalize_intensity(img: sitk.Image, qtile=0.995) -> sitk.Image:
+def normalize_intensity_to_uchar(img: sitk.Image, qtile=0.995) -> sitk.Image:
     c3d = Convert3D()
     c3d.push(img)
     c3d.execute(f'-stretch 0 {qtile*100}% 0 255 -clip 0 255')
+    return c3d.peek(-1)
+
+# Rescale intensity so that the image can be safely saved as an image
+# of short type without compromizing any details. No clipping is applied
+def rescale_intensity_to_short(img: sitk.Image, qtile=0.995) -> sitk.Image:
+    c3d = Convert3D()
+    c3d.push(img)
+    c3d.execute(f'-stretch {(1-qtile)*100}% {qtile*100}% 0 4096')
     return c3d.peek(-1)
 
 # Crop segmentation by margin
@@ -273,9 +281,9 @@ def generate_ashs_registration_qc(
     output_path: str,
     title: str|None = None):
     
-    vols = {'t2': normalize_intensity(t2_img),
-            't1': normalize_intensity(t1_to_t2),
-            'temp': normalize_intensity(template_img)}
+    vols = {'t2': normalize_intensity_to_uchar(t2_img),
+            't1': normalize_intensity_to_uchar(t1_to_t2),
+            'temp': normalize_intensity_to_uchar(template_img)}
 
     generate_ashs_qc(vols, 
                      row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 'temp': 'Template to T2'},
@@ -379,7 +387,8 @@ class ASHSProcessor:
         # Perform neck trimming if necessary
         if self.overwrite_existing or not gpe.t1_neck_trim.exists():
             with self.tm_neck:
-                gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data)
+                trimmed_img = trim_neck_in_memory(gpe.t1_native.data)
+                gpe.t1_neck_trim.data = rescale_intensity_to_short(trimmed_img)
         else:
             print(f"Neck-trimmed T1 already exists at {gpe.t1_neck_trim.filename}. Skipping neck trimming step.")
             
@@ -393,11 +402,11 @@ class ASHSProcessor:
             with self.tm_reg_t1_t2_whole:
 
                 # If specified, crop the T2 image before registration      
-                t2_cropped_img = gpe.t2_whole_img.data
+                t2_cropped_img = rescale_intensity_to_short(gpe.t2_whole_img.data)
                 if self.t2_cropping > 0:
                     # Create the cropping command for c3d based on the specified cropping fraction
                     c3d  = Convert3D()
-                    c3d.push(gpe.t2_whole_img.data)
+                    c3d.push(t2_cropped_img)
                     c = self.t2_cropping * 100
                     c3d.execute(f'-swapdim RSA -region {c}x{c}x0% {100-2*c}x{100-2*c}x100%')
                     t2_cropped_img = c3d.peek(-1)
@@ -423,7 +432,8 @@ class ASHSProcessor:
                         f"-i template_3tt1 trim_t1_image "
                         f"-o rigid -n 400x0x0x0 "
                         f"-ia-image-centers -search 400 5 5", 
-                        template_3tt1=tpe.template_3tt1.data, trim_t1_image=gpe.t1_neck_trim.data, rigid=None)
+                        template_3tt1=rescale_intensity_to_short(tpe.template_3tt1.data), 
+                        trim_t1_image=gpe.t1_neck_trim.data, rigid=None)
                 
                 # 2. affine
                 g.execute(f'-threads {nt} -a -m NCC 2x2x2 '

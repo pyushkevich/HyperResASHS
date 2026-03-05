@@ -5,6 +5,42 @@ import SimpleITK as sitk
 from matplotlib.gridspec import GridSpec
 from typing import Dict, Type, Callable, Any
 
+
+class LazyPipelineTypeTraits:
+    """Traits for handling lazy loading/saving of different object types in the pipeline."""
+    @staticmethod
+    def loader(path:str) -> Any:
+        return None
+    
+    @staticmethod
+    def saver(data: Any, path:str):
+        pass
+
+
+class LazyPipelineImageTraits(LazyPipelineTypeTraits):
+    """Traits for handling lazy loading/saving of SimpleITK images in the pipeline."""
+    @staticmethod
+    def loader(path:str) -> sitk.Image:
+        return sitk.ReadImage(path)
+    
+    @staticmethod
+    def saver(data:sitk.Image, path:str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        sitk.WriteImage(data, path)
+        
+        
+class LazyPipelineCastToShortImageTraits(LazyPipelineTypeTraits):
+    """Traits for handling lazy loading/saving of SimpleITK images in the pipeline."""
+    @staticmethod
+    def loader(path:str) -> sitk.Image:
+        return sitk.ReadImage(path)
+    
+    @staticmethod
+    def saver(data:sitk.Image, path:str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        sitk.WriteImage(sitk.Cast(data, sitk.sitkInt16), path)
+
+
 class LazyPipelineElement:
     """
     A generic lazy-loading pipeline element that defers reading from disk until needed.
@@ -21,35 +57,20 @@ class LazyPipelineElement:
         lazy_xfm = LazyPipelineElement("transform.mat", sitk.Transform)
         transform = lazy_xfm.data  # Loads on first access
     """
-    def __init__(self, filename, obj_type: Type):
+    def __init__(self, filename, traits: Type[LazyPipelineTypeTraits]):
         self.filename = filename
         self._data = None
-        self.obj_type = obj_type
-        
-    @classmethod
-    def register(cls, obj_type: Type, loader:Callable[[str], Any], saver: Callable[[Any, str], None]):
-        """Register a new type of pipeline element with a loader and writer function"""
-        def get(self):
-            if self._data is None and os.path.exists(self.filename):
-                self._data = loader(self.filename)
-            return self._data
-        
-        def set(self, value):
-            self._data = value
-            saver(value, self.filename)
-        
-        setattr(cls, f'get_{obj_type.__name__}', get)
-        setattr(cls, f'set_{obj_type.__name__}', set)
+        self.traits = traits
         
     @property
     def data_or_none(self) -> Any:
         """Read the object from disk if it hasn't been read yet, and return it. Returns None if the file does not exist."""
         if self._data is None and os.path.exists(self.filename):
             # Get the loader function for this type
-            loader = getattr(self, f'get_{self.obj_type.__name__}', None)
+            loader = getattr(self.traits, 'loader', None)
             if loader is None:
-                raise ValueError(f"No loader registered for type {self.obj_type}")
-            self._data = loader()
+                raise ValueError(f"No loader registered for type {self.traits.__name__}")
+            self._data = loader(self.filename)
             
         return self._data
     
@@ -61,10 +82,10 @@ class LazyPipelineElement:
                 raise FileNotFoundError(f"File does not exist: {self.filename}")
 
             # Get the loader function for this type
-            loader = getattr(self, f'get_{self.obj_type.__name__}', None)
+            loader = getattr(self.traits, 'loader', None)
             if loader is None:
-                raise ValueError(f"No loader registered for type {self.obj_type}")
-            self._data = loader()
+                raise ValueError(f"No loader registered for type {self.traits.__name__}")
+            self._data = loader(self.filename)
             
         return self._data
     
@@ -74,23 +95,19 @@ class LazyPipelineElement:
         self._data = value
         if self._data is not None:
             os.makedirs(os.path.dirname(self.filename), exist_ok=True)
-            saver = getattr(self, f'set_{self.obj_type.__name__}', None)
+            saver = getattr(self.traits, 'saver', None)
             if saver is None:
-                raise ValueError(f"No saver registered for type {self.obj_type}")
-            saver(value)
+                raise ValueError(f"No saver registered for type {self.traits.__name__}")
+            saver(value, self.filename)
         
     def exists(self) -> bool:
         """Check if the image file exists on disk"""
         return os.path.exists(self.filename)
     
     def __str__(self) -> str:
-        return f"LazyPipelineElement(filename='{self.filename}', type={self.obj_type.__name__}, exists={self.exists()}, loaded={self._data is not None})"
+        return f"LazyPipelineElement(filename='{self.filename}', type={self.traits.__name__}, exists={self.exists()}, loaded={self._data is not None})"
         
 
-LazyPipelineElement.register(sitk.Image, 
-                             lambda path: sitk.ReadImage(path),
-                             lambda img, path: sitk.WriteImage(img, path))
-        
 class LazyImage(LazyPipelineElement):
     """
     Convenience wrapper for lazy-loading SimpleITK images.
@@ -106,8 +123,25 @@ class LazyImage(LazyPipelineElement):
             # Process img...
             lazy_img.data = processed_img  # Saves immediately
     """
+    def __init__(self, filename, cast_to_int16=False):
+        super().__init__(filename, LazyPipelineCastToShortImageTraits if cast_to_int16 else LazyPipelineImageTraits)      
+        
+
+class LazyInt16Image(LazyImage):
+    """
+    Convenience wrapper for lazy-loading SimpleITK images that should be saved as int16.
+    
+    Specialized version of LazyImage that automatically casts images to int16 when saving.
+    
+    Example:
+        lazy_img = LazyInt16Image("path/to/image.nii.gz")
+        if lazy_img.exists():
+            img = lazy_img.data  # Loads on first access
+            # Process img...
+            lazy_img.data = processed_img  # Saves immediately, automatically cast to int16
+    """
     def __init__(self, filename):
-        super().__init__(filename, sitk.Image)        
+        super().__init__(filename, cast_to_int16=True)  
  
  
 # This class stores the images generated using processing
@@ -122,9 +156,9 @@ class GlobalPipelineElements:
         self.t1_native = LazyImage(join(case_path, nm.t1_native_img))
         
         # Processed images
-        self.t1_neck_trim = LazyImage(join(case_path, nm.t1_neck_trim_img))
-        self.t1_reg_to_t2 = LazyImage(join(case_path, nm.t1_aligned_to_t2_img))
-        self.template_to_3tt1 = LazyImage(join(case_path, nm.template_to_t1_warped_img))
+        self.t1_neck_trim = LazyInt16Image(join(case_path, nm.t1_neck_trim_img))
+        self.t1_reg_to_t2 = LazyInt16Image(join(case_path, nm.t1_aligned_to_t2_img))
+        self.template_to_3tt1 = LazyInt16Image(join(case_path, nm.template_to_t1_warped_img))
     
 
 class TemplatePipelineElements:
@@ -145,40 +179,40 @@ class LocalPipelineElements:
         self.dir_nnunet_output = join(case_path, format(nm.nnunet_output_dir))
         
         # Images and matrices generated during preprocessing
-        self.roi_in_t1_space = LazyImage(join(case_path, format(nm.template_roi_to_t1_warped_img)))
+        self.roi_in_t1_space = LazyInt16Image(join(case_path, format(nm.template_roi_to_t1_warped_img)))
         self.fn_save_mat_path_t2_to_t1_local = join(case_path, format(nm.t1_to_t2_local_affine_mat))
-        self.t2_patch_hyperres = LazyImage(join(case_path, format(nm.t2_hyperres_patch_img)))
-        self.t1_patch_warped_hyperres = LazyImage(join(case_path, format(nm.t1_hyperres_patch_img)))
+        self.t2_patch_hyperres = LazyInt16Image(join(case_path, format(nm.t2_hyperres_patch_img)))
+        self.t1_patch_warped_hyperres = LazyInt16Image(join(case_path, format(nm.t1_hyperres_patch_img)))
         self.fn_registration_qc = join(case_path, format(nm.registration_qc))
         
         # NNUNet input and output
         self.nnunet_train_id = nnunet_train_id
         self.hl_nnunet_t2_input = join(self.dir_nnunet_input, 'MTL_000_0000.nii.gz')
         self.hl_nnunet_t1_input = join(self.dir_nnunet_input, 'MTL_000_0001.nii.gz')
-        self.nnunet_seg = LazyImage(join(self.dir_nnunet_output, 'MTL_000.nii.gz'))
+        self.nnunet_seg = LazyInt16Image(join(self.dir_nnunet_output, 'MTL_000.nii.gz'))
         self.fn_segmentation_qc = join(case_path, format(nm.segmentation_qc))
         
         # Final post-processed segmentation
-        self.t2_seg_hyperres = LazyImage(join(case_path, format(nm.final_hyperres_seg)))
-        self.t2_seg_native = LazyImage(join(case_path, format(nm.final_native_seg)))
+        self.t2_seg_hyperres = LazyInt16Image(join(case_path, format(nm.final_hyperres_seg)))
+        self.t2_seg_native = LazyInt16Image(join(case_path, format(nm.final_native_seg)))
 
         # The input path for INR training is different since INR code expects a certain directory structure
         self.dir_inr_train_input = inr_path
         
         # For training/INR, the primary and secondary modalities cropped at native resolution
-        self.input_seg = LazyImage(join(case_path, format(nm.t2_native_gt_seg)))
-        self.inr_primary = LazyImage(join(case_path, format(nm.inr_input_t2_lr_img)))
-        self.inr_primary_mask = LazyImage(join(case_path, format(nm.inr_input_t2_lr_mask)))
-        self.inr_primary_seg = LazyImage(join(case_path, format(nm.inr_input_t2_lr_seg)))
-        self.inr_primary_gt = LazyImage(join(case_path, format(nm.inr_input_t2_gt_img)))
-        self.inr_secondary = LazyImage(join(case_path, format(nm.inr_input_t1_lr_img)))
-        self.inr_secondary_mask = LazyImage(join(case_path, format(nm.inr_input_t1_lr_mask)))
-        self.inr_secondary_gt = LazyImage(join(case_path, format(nm.inr_input_t1_gt_img)))
-        self.inr_inference_mask = LazyImage(join(case_path, format(nm.inr_input_inference_mask)))
+        self.input_seg = LazyInt16Image(join(case_path, format(nm.t2_native_gt_seg)))
+        self.inr_primary = LazyInt16Image(join(case_path, format(nm.inr_input_t2_lr_img)))
+        self.inr_primary_mask = LazyInt16Image(join(case_path, format(nm.inr_input_t2_lr_mask)))
+        self.inr_primary_seg = LazyInt16Image(join(case_path, format(nm.inr_input_t2_lr_seg)))
+        self.inr_primary_gt = LazyInt16Image(join(case_path, format(nm.inr_input_t2_gt_img)))
+        self.inr_secondary = LazyInt16Image(join(case_path, format(nm.inr_input_t1_lr_img)))
+        self.inr_secondary_mask = LazyInt16Image(join(case_path, format(nm.inr_input_t1_lr_mask)))
+        self.inr_secondary_gt = LazyInt16Image(join(case_path, format(nm.inr_input_t1_gt_img)))
+        self.inr_inference_mask = LazyInt16Image(join(case_path, format(nm.inr_input_inference_mask)))
         
         # After INR upsampling is done, the upsampled segmentation is resampled into the space of the
         # T2 hyper-resolution patch.
-        self.t2_patch_hyperres_seg = LazyImage(join(case_path, format(nm.t2_hyperres_gt_seg)))
+        self.t2_patch_hyperres_seg = LazyInt16Image(join(case_path, format(nm.t2_hyperres_gt_seg)))
                 
 class ASHSExperimentBase:
     def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
