@@ -443,7 +443,7 @@ class ASHSProcessor:
                         f"-rm temp_roi_left t1_roi_left "
                         f"-rm temp_roi_right t1_roi_right "
                         f"-r {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv", 
-                        template_to_3tt1=None, temp_roi_left=tpe.template_roi_left.data, temp_roi_right=tpe.template_roi_right.data, 
+                        template_to_3tt1=None, temp_roi_left=tpe.template_roi['left'].data, temp_roi_right=tpe.template_roi['right'].data, 
                         t1_roi_left=None, t1_roi_right=None)
                 
                 # Read off the ROI images
@@ -535,7 +535,7 @@ class ASHSProcessor:
                 
                 # Write out the segmentation and dummy mask
                 c3d.execute(f'-clear -push S -swapdim RPI -push S -scale 0 -shift 1 -as T2M')
-                lp.inr_seg.data = c3d.peek(-2)
+                lp.t2_patch_hyperres_seg.data = c3d.peek(-2)
                 lp.inr_primary_mask.data = c3d.peek(-1)
                 
                 # Crop the secondary image. Here we first need to define the ROI in the T1 space
@@ -581,7 +581,7 @@ class ASHSProcessor:
                     # Create all the links
                     for dst, src in {
                         't2_LR': lp.inr_primary.filename,               # Native T2 patch
-                        't2_seg_LR': lp.inr_seg.filename,               # Native T2 segmentation
+                        't2_seg_LR': lp.inr_primary_seg.filename,               # Native T2 segmentation
                         't2_mask_LR': lp.inr_primary_mask.filename,     # All ones
                         't1_LR': lp.inr_secondary.filename,             # Native T1 match, header adjusted
                         't1_seg_LR': lp.inr_secondary_mask.filename,    # Same as T1 mask below

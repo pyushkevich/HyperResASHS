@@ -15,6 +15,7 @@ import shutil
 import yaml
 import sys
 from typing import Dict, Any
+from importlib.resources import files
 
 """
 Original ASHS command line help message for reference:
@@ -81,8 +82,8 @@ Original ASHS command line help message for reference:
 _ashs_naming_scheme = """
 # ------- input -------
 # input image names
-t1_whole_img_before_registeration: "mprage.nii.gz"
-t2_whole_img: "tse.nii.gz"
+t1_native_img: "mprage.nii.gz"
+t2_native_img: "tse.nii.gz"
 
 # input template names
 template: "template.nii.gz"
@@ -350,7 +351,7 @@ def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_
     config_src['ITKSNAP_LABEL_FILE'] = os.path.join(atlas_local_path, 'itksnap_labels.txt')
     config_src['GREEDY_NUM_THREADS'] = args.threads
     config_src['NNUNET_NUM_THREADS'] = args.threads
-    config_src['FILE_NAME_CONFIG'] = os.path.join(args.workdir, 'config','global_0000_filenames.yaml')
+    config_src['FILE_NAME_CONFIG'] = os.path.join(args.workdir, 'config', 'ashs_filename_scheme.yaml')
     
     # Write the config to the working directory
     os.makedirs(os.path.join(args.workdir, 'config'), exist_ok=True)
@@ -359,6 +360,9 @@ def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_
         yaml.dump(config_src, f)
         
     # Write the preferred naming scheme to the working directory
+    fn_scheme = files('hyperresashs').joinpath('config_templates/ashs_filename_scheme.yaml')
+    with fn_scheme.open('r') as f:
+        _ashs_naming_scheme = f.read()
     with open(config_src['FILE_NAME_CONFIG'], 'wt') as f:
         f.write(_ashs_naming_scheme)
     
@@ -404,7 +408,6 @@ def run_segmentation(args):
         atlas_local_path = hf.snapshot_download(df_meta.iloc[0]['repo'])
                     
     # Set up the atlas configuration the way Yue's code expects it
-    print(f'atlas_local_path: {atlas_local_path}')
     config = _setup_config(atlas_config, args, atlas_local_path, training=False)
 
     # Create the inferencer

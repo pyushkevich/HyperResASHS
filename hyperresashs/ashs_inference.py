@@ -80,10 +80,11 @@ class HyperASHSInference():
 
             # ------- nnunet inference -------
             with tm_nnunet:
+                torch_device = nnunet_configure_device(device, int(self.config.get('NNUNET_NUM_THREADS', 8)))
                 for i_side_, (side_, lp) in enumerate(exp.lpe.items()):
 
                     # command
-                    print(f'start running inference for {lp.dir_local}')
+                    print(f'start running inference for {side_} patch with nnUNet model {self.nnunet_model} on device {torch_device}...')
                     start = time.time()
 
                     # nnUNet prediction
@@ -94,7 +95,6 @@ class HyperASHSInference():
                     from nnunetv2.utilities.label_handling.label_handling import determine_num_input_channels
 
                     # Number of CPU threads to use for nnunet
-                    torch_device = nnunet_configure_device(device, int(self.config.get('NNUNET_NUM_THREADS', 8)))
                     predictor = nnUNetPredictor(verbose=True, device=torch_device)
                     use_folds = predictor.auto_detect_available_folds(self.nnunet_model, 'checkpoint_final.pth')
                     dataset_json = load_json(join(self.nnunet_model, 'dataset.json'))
@@ -143,9 +143,13 @@ class HyperASHSInference():
 
                     end = time.time()  # end counting the time
                     elapsed_time = end - start
-                    print(f'Inference time for {lp.dir_local}: {elapsed_time:.2f} seconds')
                     with open(join(lp.dir_nnunet_output, "elapsed_time.txt"), "w") as f_:
                         f_.write(str(elapsed_time))
+                        
+                    # Copy the nnUNet output segmentation to the final segmentation location
+                    # (links are a bad idea because user might want to delete the nnUNet output folder)
+                    copy_or_link_file(lp.nnunet_seg.filename, lp.t2_seg_hyperres.filename, 
+                                      create_links=False, force_overwrite=True, create_dir=True)
                         
                     # Generate a QC screenshot for the nnUNet output
                     generate_ashs_segmentation_qc(

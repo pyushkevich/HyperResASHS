@@ -114,69 +114,71 @@ class LazyImage(LazyPipelineElement):
 class GlobalPipelineElements:
     def __init__(self, case_path:str, nm: SimpleNamespace):
         # Registration matrices
-        self.fn_save_mat_path_t2_to_t1_global = join(case_path, 'global_matrix_3tt2_to_3tt1.mat')
-        self.fn_template_to_3tt1_affine_matrix = join(case_path, nm.affine_matrix)
+        self.fn_save_mat_path_t2_to_t1_global = join(case_path, nm.t1_to_t2_affine_mat)
+        self.fn_template_to_3tt1_affine_matrix = join(case_path, nm.template_to_t1_affine_mat)
 
         # Raw inputs                
-        self.t2_whole_img = LazyImage(join(case_path, nm.t2_whole_img))
-        self.t1_native = LazyImage(join(case_path, nm.t1_whole_img_before_registeration))
+        self.t2_whole_img = LazyImage(join(case_path, nm.t2_native_img))
+        self.t1_native = LazyImage(join(case_path, nm.t1_native_img))
         
         # Processed images
-        self.t1_neck_trim = LazyImage(join(case_path, nm.t1_name_after_triming_neck))
-        self.t1_reg_to_t2 = LazyImage(join(case_path, nm.t1_whole_img))
-        self.template_to_3tt1 = LazyImage(join(case_path, nm.template_to_3tt1))
-        self.t2_padded_img = LazyImage(join(case_path, nm.t2_padded_img))
+        self.t1_neck_trim = LazyImage(join(case_path, nm.t1_neck_trim_img))
+        self.t1_reg_to_t2 = LazyImage(join(case_path, nm.t1_aligned_to_t2_img))
+        self.template_to_3tt1 = LazyImage(join(case_path, nm.template_to_t1_warped_img))
     
 
 class TemplatePipelineElements:
     def __init__(self, template_path:str, nm: SimpleNamespace):
-        self.template_3tt1 = LazyImage(join(template_path, nm.template))
-        self.template_roi_left = LazyImage(join(template_path, nm.left_roi_file))
-        self.template_roi_right = LazyImage(join(template_path, nm.right_roi_file))
+        self.template_3tt1 = LazyImage(join(template_path, nm.template_img))
+        self.template_roi = { side : LazyImage(join(template_path, nm.template_roi_img.format(side=side))) for side in ['left', 'right'] }
 
 
 class LocalPipelineElements:
-    def __init__(self, case_path:str, side:str, test_folder: str, nm: SimpleNamespace, 
+    def __init__(self, case_path:str, side:str, dataset_id: str, nm: SimpleNamespace, 
                  inr_path: str|None=None, nnunet_train_id: int|None = None):
+
+        format = lambda fn: fn.format(side=side, dataset=dataset_id)
+
         # Folders
-        self.dir_local = join(case_path, test_folder, side)
-        self.dir_nnunet_input = join(self.dir_local, 'input')
-        self.dir_nnunet_output = join(self.dir_local, 'output')
+        # self.dir_local = join(case_path, test_folder, side)
+        self.dir_nnunet_input = join(case_path, format(nm.nnunet_input_dir))
+        self.dir_nnunet_output = join(case_path, format(nm.nnunet_output_dir))
         
         # Images and matrices generated during preprocessing
-        self.roi_in_t1_space = LazyImage(join(case_path, nm.global_roi_in_3tt1_XYZ.replace('XYZ', side)))
-        self.fn_save_mat_path_t2_to_t1_local = join(self.dir_local, nm.reg_mat)
-        self.t2_patch_hyperres = LazyImage(join(self.dir_local, nm.hyper_primary))
-        self.t1_patch_warped_hyperres = LazyImage(join(self.dir_local, nm.hyper_secondary_after_registertion))
-        self.fn_registration_qc = join(self.dir_local, f'registration_qc.png')
+        self.roi_in_t1_space = LazyImage(join(case_path, format(nm.template_roi_to_t1_warped_img)))
+        self.fn_save_mat_path_t2_to_t1_local = join(case_path, format(nm.t1_to_t2_local_affine_mat))
+        self.t2_patch_hyperres = LazyImage(join(case_path, format(nm.t2_hyperres_patch_img)))
+        self.t1_patch_warped_hyperres = LazyImage(join(case_path, format(nm.t1_hyperres_patch_img)))
+        self.fn_registration_qc = join(case_path, format(nm.registration_qc))
         
         # NNUNet input and output
         self.nnunet_train_id = nnunet_train_id
         self.hl_nnunet_t2_input = join(self.dir_nnunet_input, 'MTL_000_0000.nii.gz')
         self.hl_nnunet_t1_input = join(self.dir_nnunet_input, 'MTL_000_0001.nii.gz')
         self.nnunet_seg = LazyImage(join(self.dir_nnunet_output, 'MTL_000.nii.gz'))
-        self.fn_segmentation_qc = join(self.dir_local, f'segmentation_qc.png')
+        self.fn_segmentation_qc = join(case_path, format(nm.segmentation_qc))
         
         # Final post-processed segmentation
-        self.t2_seg_native = LazyImage(join(self.dir_local, f'hyperashs_seg_{side}_to_t2orig.nii.gz'))
+        self.t2_seg_hyperres = LazyImage(join(case_path, format(nm.final_hyperres_seg)))
+        self.t2_seg_native = LazyImage(join(case_path, format(nm.final_native_seg)))
 
         # The input path for INR training is different since INR code expects a certain directory structure
         self.dir_inr_train_input = inr_path
         
         # For training/INR, the primary and secondary modalities cropped at native resolution
-        self.input_seg = LazyImage(join(self.dir_local, nm.seg))
-        self.inr_primary = LazyImage(join(self.dir_local, nm.inr_primary))
-        self.inr_primary_mask = LazyImage(join(self.dir_local, 'primary_mask.nii.gz'))
-        self.inr_primary_gt = LazyImage(join(self.dir_local, 'primary_gt.nii.gz'))
-        self.inr_secondary = LazyImage(join(self.dir_local, nm.inr_secondary))
-        self.inr_secondary_mask = LazyImage(join(self.dir_local, 'secondary_mask.nii.gz'))
-        self.inr_secondary_gt = LazyImage(join(self.dir_local, 'secondary_gt.nii.gz'))
-        self.inr_seg = LazyImage(join(self.dir_local, nm.inr_seg))
-        self.inr_inference_mask = LazyImage(join(self.dir_local, 'inr_inference_mask.nii.gz'))
+        self.input_seg = LazyImage(join(case_path, format(nm.t2_native_gt_seg)))
+        self.inr_primary = LazyImage(join(case_path, format(nm.inr_input_t2_lr_img)))
+        self.inr_primary_mask = LazyImage(join(case_path, format(nm.inr_input_t2_lr_mask)))
+        self.inr_primary_seg = LazyImage(join(case_path, format(nm.inr_input_t2_lr_seg)))
+        self.inr_primary_gt = LazyImage(join(case_path, format(nm.inr_input_t2_gt_img)))
+        self.inr_secondary = LazyImage(join(case_path, format(nm.inr_input_t1_lr_img)))
+        self.inr_secondary_mask = LazyImage(join(case_path, format(nm.inr_input_t1_lr_mask)))
+        self.inr_secondary_gt = LazyImage(join(case_path, format(nm.inr_input_t1_gt_img)))
+        self.inr_inference_mask = LazyImage(join(case_path, format(nm.inr_input_inference_mask)))
         
         # After INR upsampling is done, the upsampled segmentation is resampled into the space of the
         # T2 hyper-resolution patch.
-        self.t2_patch_hyperres_seg = LazyImage(join(self.dir_local, nm.hyper_primary_seg))
+        self.t2_patch_hyperres_seg = LazyImage(join(case_path, format(nm.t2_hyperres_gt_seg)))
                 
 class ASHSExperimentBase:
     def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
@@ -187,9 +189,9 @@ class ASHSExperimentBase:
         self.case_path = case_path
         self.inr_path = inr_path
         self.nnunet_train_id = nnunet_train_id
-        self.test_folder = 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME'])
+        self.dataset_id = 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME'])
         self.gpe = GlobalPipelineElements(case_path, nm)
-        self.lpe = { side: LocalPipelineElements(case_path, side, self.test_folder, nm, 
+        self.lpe = { side: LocalPipelineElements(case_path, side, self.dataset_id, nm, 
                                                  inr_path=inr_path[side] if inr_path is not None else None,
                                                  nnunet_train_id=nnunet_train_id[side] if nnunet_train_id is not None else None) 
                     for side in sides }
