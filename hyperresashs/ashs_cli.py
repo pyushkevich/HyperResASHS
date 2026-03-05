@@ -152,6 +152,8 @@ def main():
                               help='Path to ITK-SNAP label description file. See documentation for expected format.')
     train_parser.add_argument('-x', '--xval', type=str, default=None,
                               help='Cross-validation fold specification. See documentation for expected format.')
+    train_parser.add_argument('-R', '--random-seed', type=int, default=None, 
+                              help='Specify random seed for the INR optimization; use to rerun failed INR experiments.')
     
     train_parser.add_argument('-s', '--stage', type=str, default='',
                               help='''
@@ -206,7 +208,7 @@ def main():
     elif args.command == 'run':
         run_segmentation(args)
     elif args.command == 'train':
-        run_training(args)
+        return run_training(args)
     else:
         raise ValueError(f"Unknown command: {args.command}")
         
@@ -276,7 +278,11 @@ def print_header(metadata):
         Achieving detailed medial temporal lobe segmentation with upsampled
         isotropic training from implicit neural representation.
         arXiv preprint arXiv:2508.17171."""
-    citations = [main_citation] + metadata.get('citations', [])
+    nnunet_citation = """\
+        Isensee, F., Jaeger, P. F., Kohl, S. A., Petersen, J., & Maier-Hein, K. H. (2021). 
+        nnU-Net: a self-configuring method for deep learning-based biomedical image segmentation. 
+        Nature methods, 18(2), 203-211."""
+    citations = [main_citation, nnunet_citation] + metadata.get('citations', [])
 
     print('' + '='*80)
     print(f"HyperResASHS {__version__} using atlas {metadata['id']} {metadata['version']}")
@@ -398,6 +404,7 @@ def run_segmentation(args):
         atlas_local_path = hf.snapshot_download(df_meta.iloc[0]['repo'])
                     
     # Set up the atlas configuration the way Yue's code expects it
+    print(f'atlas_local_path: {atlas_local_path}')
     config = _setup_config(atlas_config, args, atlas_local_path, training=False)
 
     # Create the inferencer
@@ -407,7 +414,7 @@ def run_segmentation(args):
     create_links, overwrite_existing = not args.no_links, not args.no_overwrite
     for img_type, img_path in [('mprage', args.t1), ('tse', args.t2)]:        
         dest = os.path.join(args.workdir, f'{img_type}.nii.gz')
-        copy_or_link_file(img_path, dest, create_links=create_links, force_overwrite=overwrite_existing)
+        copy_or_link_file(img_path, dest, create_links=create_links, force_overwrite=overwrite_existing, relative_links=False)
             
     # Run the segmentation    
     print(f"Running HyperResASHS with:")
@@ -421,7 +428,7 @@ def run_segmentation(args):
                                       device=args.device)
 
 
-def run_training(args):
+def run_training(args) -> int:
     """Run the training pipeline."""
     
     create_links, overwrite_existing = not args.no_links, not args.no_overwrite
@@ -455,8 +462,7 @@ def run_training(args):
             else:
                 stage_no.add(int(part))
     else:
-        stage_no = {1, 2, 3}  # Default to running all stages if not specified
-    stages = set( {1: 'preproc', 2: 'inr', 3: 'nnunet_prep', 4: 'nnunet_train'}[s] for s in stage_no )
+        stage_no = {1, 2, 3, 4, 5}  # Default to running all stages if not specified
 
     # Create the training object
     trainer = HyperASHSTraining(config, 
@@ -468,12 +474,27 @@ def run_training(args):
                                 save_intermediates=True, 
                                 create_links=create_links)
     
-    # Run preprocessing from the manifest file
-    if 'preproc' in stages:
-        trainer.preprocess(filter=args.filter)
-    if 'inr' in stages:
-        trainer.train_inr(filter=args.filter, device=args.device)
-    if 'nnunet_prep' in stages:
-        trainer.prepare_nnunet()
-    if 'nnunet_train' in stages:
-        trainer.train_nnunet(filter=args.filter, device=args.device)
+    # Set up stages and validations for the training pipeline
+    stages = [
+        (1, trainer.preprocess, {'filter': args.filter}, None),
+        (2, trainer.train_inr, {'filter': args.filter, 'device': args.device, 'random_seed': args.random_seed}, trainer.validity_check_inr_results),
+        (3, trainer.prepare_nnunet, {}, None),
+        (4, trainer.train_nnunet, {'filter': args.filter, 'device': args.device}, trainer.validity_check_nnunet_results),
+        (5, trainer.finalize, {'full_metadata': atlas_config}, None)
+    ]
+
+    # Run the specified stages    
+    for i_stage, stage_func, stage_kwargs, validity_check in stages:
+        if i_stage in stage_no:
+            # Run the stage
+            stage_func(**stage_kwargs)
+            if max(stage_no) == i_stage:
+                return 0
+            
+        # Perform validity check at the end of this stage. This prevents moving on
+        # to the next stage if there were failures in the current stage. 
+        if validity_check is not None:
+            if validity_check() is False:
+                return 1
+  
+    return 0

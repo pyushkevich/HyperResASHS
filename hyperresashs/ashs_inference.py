@@ -2,6 +2,7 @@ import os
 from os.path import join
 from .ashs_exp import ASHSExperimentBase
 from .ashs_preproc import ASHSProcessor, generate_ashs_segmentation_qc, ProgressCallbackType, default_progress_callback, Timer, SegmentationLabelMap
+from .utils.tool import copy_or_link_file, nnunet_configure_device
 import yaml
 from types import SimpleNamespace
 import torch
@@ -22,7 +23,8 @@ class HyperASHSInference():
         self.upsampling_method = config['UPSAMPLING_METHOD']
         self.dataset_id = config['EXP_NUM']
         self.trainer = config['TRAINER']
-        self.nnunet_model = self.config.get('MODEL_PATH')
+        self.nnunet_trid = f"{self.trainer}__nnUNetPlans__3d_fullres"
+        self.nnunet_model = join(self.config.get('ATLAS_PATH'), self.nnunet_trid)
         self.dataset_json_path = join(self.nnunet_model, 'dataset.json')
        
         # Number of threads for Greedy
@@ -34,108 +36,6 @@ class HyperASHSInference():
             fn_itksnap_labels=config.get('ITKSNAP_LABEL_FILE'), 
             fn_dataset_json_file=self.dataset_json_path)
 
-
-    def download_model_from_huggingface(self, hf_repo_id, target_path):
-        try:
-            from huggingface_hub import snapshot_download
-            import requests
-        except ImportError:
-            raise ImportError("huggingface_hub is not installed. Please install it with: pip install huggingface_hub")
-        
-        print(f"Model not found locally. Downloading from Hugging Face: {hf_repo_id}")
-        
-        os.makedirs(target_path, exist_ok=True)
-        temp_dir = tempfile.mkdtemp()
-        try:
-            print(f"Downloading model to temporary location: {temp_dir}")
-            
-            disable_ssl = os.environ.get('HF_HUB_DISABLE_SSL_VERIFY', '0').lower() in ('1', 'true', 'yes')
-            original_request = None
-            if disable_ssl:
-                print("warning: ssl verification is disabled (hf_hub_disable_ssl_verify=1)")
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                original_request = requests.Session.request
-                def patched_request(self, method, url, **kwargs):
-                    kwargs['verify'] = False
-                    return original_request(self, method, url, **kwargs)
-                requests.Session.request = patched_request # type: ignore
-            
-            try:
-                downloaded_path = snapshot_download(
-                    repo_id=hf_repo_id,
-                    local_dir=temp_dir,
-                    repo_type="model"
-                )
-            except Exception as ssl_error:
-                error_str = str(ssl_error).lower()
-                if 'ssl' in error_str or 'certificate' in error_str or 'cert' in error_str:
-                    if original_request:
-                        requests.Session.request = original_request
-                    raise RuntimeError(
-                        f"ssl certificate verification failed. this often happens in corporate networks with proxies.\n"
-                        f"to disable ssl verification (less secure), set environment variable:\n"
-                        f"  export HF_HUB_DISABLE_SSL_VERIFY=1\n"
-                        f"then run your command again.\n"
-                        f"original error: {str(ssl_error)}"
-                    )
-                raise
-            finally:
-                if original_request:
-                    requests.Session.request = original_request
-            
-            downloaded_contents = os.listdir(temp_dir)
-            
-            model_folder = None
-            for item in downloaded_contents:
-                item_path = join(temp_dir, item)
-                if os.path.isdir(item_path):
-                    if os.path.exists(join(item_path, 'dataset.json')) and os.path.exists(join(item_path, 'plans.json')):
-                        model_folder = item_path
-                        break
-            
-            if model_folder is None:
-                if os.path.exists(join(temp_dir, 'dataset.json')) and os.path.exists(join(temp_dir, 'plans.json')):
-                    model_folder = temp_dir
-                else:
-                    raise ValueError(f"Could not find model structure in downloaded repository. Contents: {downloaded_contents}")
-            
-            parent_dir = os.path.dirname(target_path)
-            if not os.path.exists(parent_dir):
-                os.makedirs(parent_dir, exist_ok=True)
-            
-            for item in os.listdir(model_folder):
-                src = join(model_folder, item)
-                dst = join(target_path, item)
-                if os.path.isdir(src):
-                    shutil.copytree(src, dst, dirs_exist_ok=True)
-                else:
-                    shutil.copy2(src, dst)
-            
-            required_files = ['dataset.json', 'plans.json']
-            for req_file in required_files:
-                if not os.path.exists(join(target_path, req_file)):
-                    raise ValueError(f"Required file {req_file} not found in downloaded model")
-            
-            fold_found = False
-            for item in os.listdir(target_path):
-                if item.startswith('fold_') and os.path.isdir(join(target_path, item)):
-                    if os.path.exists(join(target_path, item, 'checkpoint_final.pth')):
-                        fold_found = True
-                        break
-            
-            if not fold_found:
-                raise ValueError("No fold checkpoints found in downloaded model")
-            
-            print(f"Successfully downloaded and installed model to: {target_path}")
-            
-        except Exception as e:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            raise RuntimeError(f"Failed to download model from Hugging Face ({hf_repo_id}): {str(e)}")
-        finally:
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
 
     def resample_test_with_date(self, subject_id=None):
         subject_list = os.listdir(self.test_path)
@@ -157,7 +57,7 @@ class HyperASHSInference():
     def run_inference_for_one_case(self, case_path, subject:str|None=None, date:str|None=None,
                                    save_intermediates: bool = True, overwrite_existing: bool = False,
                                    callback: ProgressCallbackType = default_progress_callback, 
-                                   device: str|None = None):
+                                   device:str = 'auto'):
         
         # Create the ASHS experiment representation
         exp = ASHSExperimentBase(self.config, case_path, self.nm, subject=subject, date=date)
@@ -193,46 +93,9 @@ class HyperASHSInference():
                     from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
                     from nnunetv2.utilities.label_handling.label_handling import determine_num_input_channels
 
-                    torch_device = torch.device(device) if device else (torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu'))
+                    # Number of CPU threads to use for nnunet
+                    torch_device = nnunet_configure_device(device, int(self.config.get('NNUNET_NUM_THREADS', 8)))
                     predictor = nnUNetPredictor(verbose=True, device=torch_device)
-                    
-                    # Check if the path to the model is specified in config
-                    
-                    if not self.nnunet_model:                    
-                    
-                        self.nnunet_model = join(os.environ.get("nnUNet_results",""), 
-                                            f"Dataset{self.config['EXP_NUM']}_{self.config['MODEL_NAME']}", f"{self.config['TRAINER']}__nnUNetPlans__3d_fullres")
-                        
-                        
-                        plans_json_path = join(self.nnunet_model, 'plans.json')
-                        model_complete = (os.path.exists(self.dataset_json_path) and 
-                                        os.path.exists(plans_json_path))
-                        
-                        if model_complete:
-                            fold_folders = [item for item in os.listdir(self.nnunet_model) 
-                                            if item.startswith('fold_') and os.path.isdir(join(self.nnunet_model, item))]
-                            if fold_folders:
-                                for fold_folder in fold_folders:
-                                    checkpoint_path = join(self.nnunet_model, fold_folder, 'checkpoint_final.pth')
-                                    if not os.path.exists(checkpoint_path):
-                                        model_complete = False
-                                        break
-                            else:
-                                model_complete = False
-                        
-                        if not model_complete:
-                            hf_repo_id = self.config.get('HF_MODEL_REPO')
-                            if hf_repo_id:
-                                print(f"Model not found or incomplete at {self.nnunet_model}, downloading from Hugging Face...")
-                                self.download_model_from_huggingface(hf_repo_id, self.nnunet_model)
-                            else:
-                                raise FileNotFoundError(
-                                    f"Model not found or incomplete at {self.nnunet_model} and HF_MODEL_REPO not specified in config. "
-                                    f"Please either:\n"
-                                    f"  1. Place the trained model at the expected path, or\n"
-                                    f"  2. Add HF_MODEL_REPO to your config file to enable automatic download from Hugging Face."
-                                )
-                    
                     use_folds = predictor.auto_detect_available_folds(self.nnunet_model, 'checkpoint_final.pth')
                     dataset_json = load_json(join(self.nnunet_model, 'dataset.json'))
                     plans = load_json(join(self.nnunet_model, 'plans.json'))
@@ -271,6 +134,7 @@ class HyperASHSInference():
                         inference_allowed_mirroring_axes)
 
                     # predictor.initialize_from_trained_model_folder(nnunet_model, None)
+                    print(f'Predicting from {lp.dir_nnunet_input} using model {self.nnunet_model} with configuration {configuration_name} and folds {use_folds}...')
                     predictor.predict_from_files(
                         lp.dir_nnunet_input,
                         lp.dir_nnunet_output,

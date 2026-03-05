@@ -2,7 +2,6 @@
 import os
 from os.path import join
 from .ashs_exp import ASHSExperimentBase
-from .utils.upsample_inr_method import create_link
 from .utils.upsample_linear_method import linear_isotropic_upsampling, pad_image_with_world_alignment_in_memory
 from .utils.trim_neck import trim_neck_in_memory
 from .utils.tool import copy_or_link_file, get_nifti_sform_matrix, set_nifti_sform_matrix
@@ -18,7 +17,7 @@ import SimpleITK as sitk
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from typing import Protocol, Dict, Literal, Type, Callable, Any, Tuple
+from typing import Protocol, Dict, Literal, Type, Callable, Any, Tuple, List
 import sys
 
 
@@ -234,6 +233,14 @@ class SegmentationLabelMap():
         
         return OLIFile(self)
     
+    @property
+    def label_ids(self) -> List[int]:
+        return list(self.labels.keys())
+    
+    @property
+    def label_names(self) -> List[str]:
+        return [info['name'] for info in self.labels.values()]
+    
     
 def generate_ashs_segmentation_qc(
     seg: sitk.Image, 
@@ -326,11 +333,12 @@ def default_progress_callback(progress: float|None=None,
         
 class ASHSProcessor:
     """Common code for preprocessing T2/T1 pairs to generate ROIs for inference/training"""
-    def __init__(self, config, training_mode=False, overwrite_existing=False, save_intermediates=True):
+    def __init__(self, config, training_mode=False, overwrite_existing=False, save_intermediates=True, create_links=True):
         self.training_mode = training_mode
         self.overwrite_existing = overwrite_existing
         self.save_intermediates = save_intermediates
-        self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', 0.2)
+        self.create_links = create_links
+        self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', ASHSProcessor.get_config_defaults()['ASHS_TSE_REGION_CROP'])
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
         self.tm_neck = Timer()
         self.tm_reg_t1_t2_whole = Timer()
@@ -338,7 +346,11 @@ class ASHSProcessor:
         self.tm_reg_t1_t2_local = Timer()
         self.tm_prep_inr = Timer()
         self.tm_finalize = Timer()
-
+        
+        
+    @staticmethod
+    def get_config_defaults() -> Dict[str, Any]:
+        return { 'ASHS_TSE_REGION_CROP': 0.2 }
 
     def get_close_to_iso_integer_scaling(self, image : sitk.Image):
         """
@@ -367,7 +379,7 @@ class ASHSProcessor:
         # Perform neck trimming if necessary
         if self.overwrite_existing or not gpe.t1_neck_trim.exists():
             with self.tm_neck:
-                gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data, verbose=True)
+                gpe.t1_neck_trim.data = trim_neck_in_memory(gpe.t1_native.data)
         else:
             print(f"Neck-trimmed T1 already exists at {gpe.t1_neck_trim.filename}. Skipping neck trimming step.")
             
@@ -462,7 +474,8 @@ class ASHSProcessor:
                     roi_t2 = c3d.peek(-2)
 
                     # Write out the cropped T2 image and create links for nnUNet input
-                    create_link(lp.t2_patch_hyperres.filename, lp.hl_nnunet_t2_input)
+                    copy_or_link_file(lp.t2_patch_hyperres.filename, lp.hl_nnunet_t2_input, 
+                                      create_links=self.create_links, force_overwrite=True, create_dir=True, quiet=True)
                                     
                     # Compute local registration between T2 and T1
                     g.execute(f'-threads {nt} -z -a -dof 6 -ia {gpe.fn_save_mat_path_t2_to_t1_global} -m NMI '
@@ -475,7 +488,8 @@ class ASHSProcessor:
                     lp.t1_patch_warped_hyperres.data = g['t1_reg_to_t2']
 
                     # Write out the cropped T1 and create link for nnUNet input
-                    create_link(lp.t1_patch_warped_hyperres.filename, lp.hl_nnunet_t1_input)
+                    copy_or_link_file(lp.t1_patch_warped_hyperres.filename, lp.hl_nnunet_t1_input, 
+                                      create_links=self.create_links, force_overwrite=True, create_dir=True, quiet=True)
                     
                     # For QC purposes, map template all the way to T2 space
                     g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "

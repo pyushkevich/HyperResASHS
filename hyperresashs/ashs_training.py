@@ -15,10 +15,10 @@ import SimpleITK as sitk
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from typing import Protocol, Dict, Literal, Type, Callable, Any
+from typing import Protocol, Dict, Literal, Type, Callable, Any, List
 from .ashs_exp import ASHSExperimentBase
 from .ashs_preproc import ASHSProcessor, Timer, SegmentationLabelMap
-from .utils.tool import copy_or_link_file
+from .utils.tool import copy_or_link_file, nnunet_configure_device, nnunet_get_num_cpu_threads
 import pandas as pd
 import re
 from importlib.resources import files
@@ -27,6 +27,7 @@ import sys
 import json
 from tqdm import tqdm
 from sklearn.model_selection import KFold
+from . import __version__
 
 def process_manifest(manifest_csv: str) -> pd.DataFrame:
     """
@@ -57,6 +58,12 @@ def process_manifest(manifest_csv: str) -> pd.DataFrame:
         missing = required_columns - set(df.columns)
         raise ValueError(f"Missing required columns: {missing}")
     
+    # Generate a no-date column
+    if 'date' in df.columns:
+        df['date'] = np.where(pd.isna(df.date), 'nodate', df.date)
+    else:
+        df['date'] = 'nodate'
+    
     # Check that file paths exist as either an absolute path or relative to the manifest file
     manifest_dir = os.path.dirname(manifest_csv)
     def fix_filename(path):
@@ -68,6 +75,9 @@ def process_manifest(manifest_csv: str) -> pd.DataFrame:
         
     for col in ['tse', 'mprage', 'seg_left', 'seg_right']:
         df[col] = df[col].apply(fix_filename)
+        
+    # Set the index
+    df = df.set_index(['id','date'])
         
     print("Manifest validation successful.")
     return df
@@ -120,15 +130,22 @@ class HyperASHSTraining:
     def __init__(self, config: Dict[str, Any], manifest_file: str, label_file: str, xval_file: str, 
                  output_dir: str, 
                  overwrite_existing=False, save_intermediates=False, create_links=True):
-        self.config = config
+        self.config = config.copy()
         self.manifest_file = manifest_file
         self.output_dir = output_dir
+        self.stats_dir = join(output_dir, 'final', 'stats')
         self.overwrite_existing = overwrite_existing
         self.save_intermediates = save_intermediates
         self.create_links = create_links
         self.label_file = label_file
         self.labels = SegmentationLabelMap(fn_itksnap_labels=label_file)
         self.xval_file = xval_file
+        
+        # Complete the config with missing keys. This ensures that the keys that have to be exported 
+        # along with the atlas are included in the config, even if the user did not explicitly specify them.
+        # This is so that if in future versions defaults change, we still have the old defaults for the atlases 
+        # that were trained with those defaults.
+        self._complete_config()
 
         # TODO: this is redundant with the ASHSInference class. Consider refactoring to avoid this redundancy.
         # Should really load the namespace and pass as part of the config
@@ -145,6 +162,14 @@ class HyperASHSTraining:
         
         # Extract the dataset id for nnUNet
         self.nnunet_dsid = 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME'])
+        self.nnunet_trainer = config.get('TRAINER', 'ModAugUNetTrainer')
+        self.nnunet_trid = f'{self.nnunet_trainer}__nnUNetPlans__3d_fullres'
+        
+        # Number of CPU threads to use for nnunet
+        self.nnunet_threads = nnunet_get_num_cpu_threads(int(config.get('NNUNET_NUM_THREADS', 8)))
+        
+        # Set up the final directories
+        os.makedirs(self.stats_dir, exist_ok=True)
 
         # Set up the directories for nnUNet
         self.dir_nnunet_base = join(self.output_dir, 'nnunet_training')
@@ -155,9 +180,10 @@ class HyperASHSTraining:
         
         # Initialize the experiment dictionary to store the ASHSExperimentBase objects for each case
         self.d_exp = {}
-        for i, (_,row) in enumerate(self.df.iterrows()):
+        for i, (key,row) in enumerate(self.df.iterrows()):
             
-            subject, date = str(row['id']), str(row['date']) if 'date' in row else 'nodate'
+            # This is to avoid PyLance typing errors
+            subject, date = key if isinstance(key, tuple) else (str(key), 'nodate')
             
             # Create a folder in the output directory for this case
             case_path = join(self.dir_preproc, subject, date)
@@ -165,18 +191,32 @@ class HyperASHSTraining:
             os.makedirs(case_path, exist_ok=True)
             
             # Create the ASHS experiment representation
-            exp = self.d_exp[(subject,date)] = ASHSExperimentBase(self.config, case_path, self.nm, 
-                                                                  subject=subject, date=date, 
-                                                                  inr_path=inr_path_map,
-                                                                  nnunet_train_id={'left': i*2, 'right': i*2+1})
+            self.d_exp[(subject,date)] = ASHSExperimentBase(self.config, case_path, self.nm, 
+                                                            subject=subject, date=date, 
+                                                            inr_path=inr_path_map,
+                                                            nnunet_train_id={'left': i*2, 'right': i*2+1})
             
-            # Link or copy the input files to the working directory folder
-            for col, dest in [('mprage', exp.gpe.t1_native), 
-                              ('tse', exp.gpe.t2_whole_img),
-                              ('seg_left', exp.lpe['left'].input_seg),
-                              ('seg_right', exp.lpe['right'].input_seg)]:
-                copy_or_link_file(row[col], dest.filename, 
-                                  create_links=create_links, force_overwrite=overwrite_existing)
+        
+    # Make sure all the keys that are required for inference are included in the config    
+    def _complete_config(self):
+        
+        # Check that all the required keys are present
+        defaults = {
+            'EXP_NUM': None,
+            'MODEL_NAME': None,
+            'UPSAMPLING_METHOD': 'INRUpsampling',
+            'TRAINER': 'ModAugUNetTrainer',
+            'CONDITION': 'in_vivo',
+            'ASHS_TSE_REGION_CROP': ASHSProcessor.get_config_defaults()['ASHS_TSE_REGION_CROP'],
+        }
+        
+        for key, default in defaults.items():
+            if key not in self.config:
+                if default is not None:
+                    self.config[key] = default
+                else:
+                    raise ValueError(f'Missing required config key: {key}')
+            
     
     def filter_cases(self, filter=None):
         for (subject, date), exp in self.d_exp.items():
@@ -213,14 +253,25 @@ class HyperASHSTraining:
         # Perform initial processing steps for each case (registration, INR preprocessing, and nnUNet preprocessing)
         d_filter = dict(self.filter_cases(filter))
         for i, ((subject, date), exp) in enumerate(d_filter.items()):
-            # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
+
             print('=' * 40)
             print(f'Preprocessing case {i+1}/{len(d_filter)}: {subject} - {date}')
             print('=' * 40)
+
+            # Link or copy the input files to the working directory folder
+            for col, dest in [('mprage', exp.gpe.t1_native), 
+                              ('tse', exp.gpe.t2_whole_img),
+                              ('seg_left', exp.lpe['left'].input_seg),
+                              ('seg_right', exp.lpe['right'].input_seg)]:
+                copy_or_link_file(self.df.loc[(subject, date), col], dest.filename, 
+                                  create_links=self.create_links, force_overwrite=self.overwrite_existing, 
+                                  relative_links=False)
+
+            # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
             reg.preprocess(exp)
             reg.prepare_inr(exp)
             
-    def train_inr(self, filter=None, device='cuda'):
+    def train_inr(self, filter=None, device='cuda', random_seed:int|None=None):
         """
         Train the INR model for each case in the manifest file using the preprocessed data.
         """ 
@@ -242,14 +293,19 @@ class HyperASHSTraining:
         config["SETTINGS"]["DIRECTORY"] = self.dir_inr_training
         config["MODEL"]["MODEL_CLASS"] = 'MLPv2WithEarlySeg'
         config["TRAINING"]["EPOCHS"] = 60
+        
+        # Set random seed if specified
+        if random_seed is not None:
+            config["TRAINING"]["SEED"] = random_seed
 
         # Run INR for each subject
         d_filter = dict(self.filter_cases_by_side(filter))           
         for i, ((subject, date, side), exp) in enumerate(d_filter.items()):
             case_id = f'{subject}_{date}_{side}'
+            lp = exp.lpe[side]
                 
             # Check if the file can be skipped because the output already exists
-            if self.overwrite_existing and exp.lpe[side].t2_patch_hyperres_seg.exists():
+            if self.overwrite_existing is False and exp.lpe[side].t2_patch_hyperres_seg.exists():
                 print(f'Skipping case {case_id} because output already exists and overwrite_existing=True')
                 continue
             
@@ -257,7 +313,7 @@ class HyperASHSTraining:
             print(f'Training INR for case {i+1}/{len(d_filter)}: {subject} - {date} - {side}')
             
             # Create a config for this case        
-            inr_work_dir = exp.lpe[side].dir_inr_train_input     
+            inr_work_dir = lp.dir_inr_train_input     
             inr_result_dir = join(inr_work_dir, 'result')   
             config["DATASET"]["SUBJECT_ID"] = case_id
             config["SETTINGS"]["SAVE_PATH"] = inr_result_dir
@@ -268,9 +324,7 @@ class HyperASHSTraining:
                 yaml.safe_dump(config, f, sort_keys=False)
                             
             saved_args = sys.argv
-            sys.argv = ['test', '--config', inr_config]
-            if device is not None:
-                sys.argv.extend(['--device', device])
+            sys.argv = ['test', '--config', inr_config, '--logging']
 
             # Time the INR
             with Timer() as tm_inr:            
@@ -283,21 +337,71 @@ class HyperASHSTraining:
             # Sicne the INR ROI does not have the same full context as the ROI defined based on the 
             # template, the segmentaton needs to be resampled to the original ROI space.
             
-            # Find the INR output.
+            # Find the INR output - take the latest file as we may have run with different seeds.
             inr_result_img_dir = join(inr_result_dir, 'images', case_id, config["MODEL"]["MODEL_CLASS"])
             last_epoch = config["TRAINING"]["EPOCHS"]-1
-            inr_files = os.listdir(inr_result_img_dir)
-            fn_inr_final_seg = join(inr_result_img_dir, [x for x in inr_files if x.endswith(f'e{last_epoch}__seg.nii.gz')][0])
+            inr_files = sorted(os.scandir(inr_result_img_dir), key=lambda x: x.stat().st_mtime)
+            fn_inr_final_seg = join(inr_result_img_dir, [x.name for x in inr_files if x.name.endswith(f'e{last_epoch}__seg.nii.gz')][-1])
             
             # Resample the INR output back to the original space of the T2 hyper-resolution patch
             # In the process, also extract the single largest connected component
             # TODO: this might not work for some atlases!!!
             c3d = Convert3D()
-            c3d.push(exp.lpe[side].t2_patch_hyperres.data)      # hyper_primary
+            c3d.push(lp.t2_patch_hyperres.data)      # hyper_primary
             c3d.execute(f"{fn_inr_final_seg} -as S -dup -thresh 1 inf 1 0 -comp -thresh 1 1 1 0 -times -int 0 -reslice-identity")
-            exp.lpe[side].t2_patch_hyperres_seg.data = c3d.peek(-1)                
+            lp.t2_patch_hyperres_seg.data = c3d.peek(-1)   
             
+            # Compute overlap between the upsampled segmentation and what was input
+            c3d.push(lp.inr_seg.data)
+            c3d.execute('-push S -int 0 -reslice-identity')
+            ovl = sitk.LabelOverlapMeasuresImageFilter()
+            ovl.Execute(sitk.Cast(lp.inr_seg.data, sitk.sitkInt16), sitk.Cast(c3d.peek(-1), sitk.sitkInt16))
+            dice = { label: ovl.GetDiceCoefficient(label) for label in self.labels.label_ids }
+            
+            # Write the overlap to a file
+            with open(join(inr_result_img_dir, 'inr_lr_overlap.json'), 'wt') as f:
+                json.dump({'label_dice': dice, 'total_dice': ovl.GetDiceCoefficient()}, f, indent=4, sort_keys=False)
+            
+            print(f'Dice Coefficient between input and upsampled segmentation for case {case_id}: {ovl.GetDiceCoefficient():.4f}')
             print('=' * 40)
+            
+            
+    def validity_check_inr_results(self) -> bool:
+        d_filter = dict(self.filter_cases_by_side())      
+        n_failed = 0     
+        for i, ((subject, date, side), exp) in enumerate(d_filter.items()):
+            case_id = f'{subject}_{date}_{side}'
+            lp = exp.lpe[side]
+            
+            # Check that the main output exists
+            if not lp.t2_patch_hyperres_seg.exists():
+                print(f'INR result missing for case {case_id}')
+                n_failed += 1
+                continue
+            
+            # Check that the overlap file exists
+            inr_result_img_dir = join(lp.dir_inr_train_input, 'result', 'images', case_id, 'MLPv2WithEarlySeg')
+            ovl_file = join(inr_result_img_dir, 'inr_lr_overlap.json')
+            if not os.path.exists(ovl_file):
+                print(f'INR overlap file missing for case {case_id}')
+                n_failed += 1
+                continue
+            
+            # Check that the dice coefficient is above a reasonable threshold (e.g., 0.95)
+            with open(ovl_file, 'r') as f:
+                ovl_data = json.load(f)
+                total_dice = ovl_data.get('total_dice', 0)
+                if total_dice < 0.95:
+                    print(f'INR upsampling does not match input segmentation for case {case_id}: {total_dice:.4f}. '
+                          f'Try rerunning stage 2 (-s 2) for this case (-F {case_id}) with a different random seed (-R).')
+                    n_failed += 1
+                    
+        if n_failed == 0:
+            print('Validity check for INR stage successful')
+            return True
+        else:
+            print(f'Validity check for INR stage found {n_failed} failed cases.')
+            return False
 
 
     def _make_nnunet_dataset_json(self, fn_dataset_json):
@@ -329,7 +433,7 @@ class HyperASHSTraining:
         
         # Read the subject ids from the xval file. Each row is a fold, each column is a subject
         # whose data will be held out in that fold.
-        unique_subjects = self.df['id'].unique()
+        unique_subjects = list(set([key[0] for key in self.df.index]))
         subj_splits = []
         if self.xval_file is not None:
             with open(self.xval_file, 'r') as f:
@@ -360,21 +464,12 @@ class HyperASHSTraining:
             
         print(f"nnUNet cross-validation splits file created at {fn_xval_splits} with {len(subj_splits)} folds.")
     
-    
-    def _nnunet_get_num_threads(self):
-        nt = int(self.config.get('NNUNET_NUM_THREADS', 8))
-        if nt < 1:
-            nt = os.cpu_count()
-        if nt is None:
-            nt = 1
-        return nt
-        
         
     def _nnunet_plan_and_preprocess(self):
         from nnunetv2.experiment_planning.plan_and_preprocess_api import extract_fingerprints, plan_experiments, preprocess
         
         # Read the number of threads
-        nt = self._nnunet_get_num_threads()
+        nt = self.nnunet_threads
         print(f"Using {nt} threads for nnUNet planning and preprocessing.")
         
         # --- step 1: figerprints ---
@@ -396,37 +491,9 @@ class HyperASHSTraining:
     
     def _nnunet_run(self, fold:int, device: torch.device):
         from nnunetv2.run.run_training import run_training        
-        run_training(self.nnunet_dsid, '3d_fullres', fold, 
-                     self.config.get('TRAINER', 'ModAugUNetTrainer'), 
+        run_training(self.nnunet_dsid, '3d_fullres', fold, self.nnunet_trainer, 
                      device=device, continue_training = not self.overwrite_existing)
-        
-        
-    def _nnunet_configure_device(self, device:str) -> torch.device:
-        if device == 'auto':
-            if torch.cuda.is_available():
-                device = 'cuda'
-            elif torch.backends.mps.is_available():
-                device = 'mps'
-            else:
-                device = 'cpu'
-            print(f"Auto-detected device: {device}")
-        
-        if device == 'cpu':
-            # let's allow torch to use hella threads
-            nt = self._nnunet_get_num_threads()
-            print(f"Using {nt} CPU threads for nnUNet training.")
-            torch.set_num_threads(nt)
-            return torch.device('cpu')
-        elif device == 'cuda':
-            # multithreading in torch doesn't help nnU-Net if run on GPU
-            torch.set_num_threads(1)
-            torch.set_num_interop_threads(1)
-            return torch.device(device)
-        elif device == 'mps':
-            return torch.device('mps')
-        else:
-            raise ValueError(f"Unsupported device specified: {device}. Please use 'cpu', 'mps', or 'cuda[:N]'.")
-        
+    
     
     def prepare_nnunet(self):
         
@@ -469,7 +536,6 @@ class HyperASHSTraining:
 
             # Copy left sides, flip right sides
             for what, src, dest in copy_path_list:
-                print(f'Mapping {src} -> {dest}')
                 c3d = Convert3D()
                 c3d.push(src.data)                
                 if side == 'right':
@@ -498,7 +564,7 @@ class HyperASHSTraining:
         with open(fn_xval_splits, 'r') as f:
             splits = json.load(f)
             
-        actual_device = self._nnunet_configure_device(device)
+        actual_device = nnunet_configure_device(device, self.nnunet_threads)
         print(f"Using device {actual_device} for nnUNet training.")
 
         for fold in range(len(splits)):
@@ -512,9 +578,146 @@ class HyperASHSTraining:
             with Timer() as tm_fold:            
                 self._nnunet_run(fold, device=actual_device)
                 print(f'Fold {fold} training completed in {tm_fold.total:.1f} seconds.')
+                
+                
+    def _nnunet_get_fold_details(self):
         
+        # Check that all the folds have been generated
+        fn_xval_splits = join(self.dir_nnunet['preprocessed'], self.nnunet_dsid, 'splits_final.json')
+        with open(fn_xval_splits, 'r') as f:
+            splits = json.load(f)
+        
+        fold_details = []
+        for fold, fold_split in enumerate(splits):    
+            fold_details.append(SimpleNamespace(
+                train_ids = fold_split['train'], val_ids = fold_split['val'],
+                checkpoint_final = join(self.dir_nnunet['results'], self.nnunet_dsid, self.nnunet_trid, f'fold_{fold}', 'checkpoint_final.pth'),
+                validation_summary = join(self.dir_nnunet['results'], self.nnunet_dsid, self.nnunet_trid, f'fold_{fold}', 'validation', 'summary.json')))
             
+        return fold_details
+                
+                
+    def validity_check_nnunet_results(self) -> bool:
+            
+        fold_details = self._nnunet_get_fold_details()
+        n_failed = 0
+        d_val_dice = {}
+        for fold, fd in enumerate(fold_details):
+            fold_dir = join(self.dir_nnunet['results'], self.nnunet_dsid, self.nnunet_trid, f'fold_{fold}')
+            
+            # Check that the checkpoint and summary files exist
+            if not os.path.exists(fd.checkpoint_final):
+                print(f'Missing trained nnUNet model for fold {fold} at {fd.checkpoint_final}')
+                n_failed += 1
+                continue
+            if not os.path.exists(fd.validation_summary):
+                print(f'Missing validation summary for fold {fold} at {fd.validation_summary}')
+                n_failed += 1
+                continue
+            
+            # Load the Dice scores from the summary file  
+            with open(fd.validation_summary, 'r') as f:
+                summary = json.load(f)
+                for i, nid in enumerate(fd.val_ids):
+                    d_val_dice[nid] = summary['metric_per_case'][i]['metrics']
         
+        if n_failed > 0:
+            print(f'Validity check for nnUNet training stage found {n_failed}/{len(fold_details)} incomplete folds')  
+            return False  
+        
+        # Compute table of summary Dice measures
+        c_labels = [label['name'] for id, label in self.labels.labels.items() if id > 0 ]
+        d_val_dice_for_df = { k:[] for k in ['id', 'date', 'side'] + c_labels }
+        d_filter = dict(self.filter_cases_by_side()) 
+        for ((subject, date, side), exp) in d_filter.items():
+            lp = exp.lpe[side]
+            nnunet_id = f'MTL_{lp.nnunet_train_id:03d}'
+            val_dice = d_val_dice[nnunet_id]
+            d_val_dice_for_df['id'].append(subject)
+            d_val_dice_for_df['date'].append(date)
+            d_val_dice_for_df['side'].append(side)
+            for label_id, label in self.labels.labels.items():
+                if label_id > 0:
+                    d_val_dice_for_df[label['name']].append(val_dice[f'{label_id}']['Dice'])
+        df_val_dice = pd.DataFrame(d_val_dice_for_df)
+        df_val_dice['mean'] = df_val_dice[c_labels].mean(1)
+        df_val_dice.to_csv(join(self.stats_dir, 'nnunet_validation_dice.csv'), index=False)
+        
+        # Create a summary table of Dice by label using pandas wide to tall and aggregating by label
+        df_val_dice_long = df_val_dice.melt(id_vars=['id', 'date', 'side'], value_vars=c_labels, var_name='label', value_name='dice')
+        df_val_dice_summary = df_val_dice_long.groupby('label')['dice'].agg(['mean', 'std', 'min', 'max'])
+        df_val_dice_summary.to_csv(join(self.stats_dir, 'nnunet_validation_dice_summary.csv'))        
+        
+        # Print warning if any Dice scores are very low (< 0.1)
+        n_warn = 0
+        for i, row in df_val_dice.iterrows():
+            if row['mean'] < 0.1:
+                print(f"Warning: Case {row['id']}_{row['date']}_{row['side']} has low mean Dice score of {row['mean']:.4f} across all labels.")
+                n_warn += 1
+
+        if n_warn > 0:
+            print(f'Validity check for nnUNet completed with {n_warn} warnings.')
+        else:
+            print(f'Validity check for nnUNet training stage successful.')
+            
+        return True
+    
+                
+    def finalize(self, full_metadata: Dict[str, Any]):
+        """
+        Finalize the training by copying the trained nnUNet models to the case folders and performing any necessary cleanup.
+        """ 
+        print('-' * 60)
+        print('HyperASHS Train Stage 5: Finalization and packaging')
+        print('-' * 60)
+        
+        # Copy the folds to the target destination
+        fold_details = list(self._nnunet_get_fold_details())
+        atlas_dir = join(self.output_dir, 'final', 'atlas')
+        for fold, fd in tqdm(enumerate(fold_details), desc="Copying nnUNet checkpoints to final atlas"):
+            fold_dir = join(atlas_dir, self.nnunet_trid, f'fold_{fold}')
+            os.makedirs(fold_dir, exist_ok=True)
+            copy_or_link_file(fd.checkpoint_final, join(fold_dir, 'checkpoint_final.pth'), 
+                              create_links=False, force_overwrite=True, quiet=True)
+            
+        # Copy required .json files
+        for fn in ['dataset.json', 'plans.json']:
+            fn_src = join(self.dir_nnunet['results'], self.nnunet_dsid, self.nnunet_trid, fn)
+            fn_dst = join(atlas_dir, self.nnunet_trid, fn)
+            copy_or_link_file(fn_src, fn_dst, create_links=False, force_overwrite=True, quiet=True)             
+        
+        # Write the ITK-SNAP labels file to the final directory
+        self.labels.export_itksnap_label_file(join(atlas_dir, 'itksnap_labels.txt'))
+        
+        # Create a .gitattributes file to specify that .pth files should be treated as large files if using git-lfs
+        with open(join(atlas_dir, '.gitattributes'), 'w') as f:
+            f.write('*.pth filter=lfs diff=lfs merge=lfs -text\n')
+            
+        # Write out the atlas.yaml file with the complete metadata
+        full_metadata = full_metadata.copy()  
+        
+        # Ensure relevant config keys for inference are in the metadata, while the other fields
+        # that are only relevant for training (e.g., local directories) are not includes
+        full_metadata['config'] = {
+            key: self.config[key] for key in ['EXP_NUM', 'MODEL_NAME', 'UPSAMPLING_METHOD', 
+                                              'TRAINER', 'CONDITION', 'ASHS_TSE_REGION_CROP']
+        }
+            
+        # Write the software version information to the metadata
+        full_metadata['hyperresashs'] = {'version': __version__}
+        
+        # Write the metadata to a YAML file in the atlas directory
+        with open(join(atlas_dir, 'atlas.yaml'), 'w') as f:
+            yaml.safe_dump(full_metadata, f, sort_keys=False)
+            
+        # Write an dummy README.md file to the atlas directory
+        with open(join(atlas_dir, 'README.md'), 'w') as f:
+            f.write('---')
+            f.write('license: cc-by-nc-4.0')
+            f.write('---')
+            
+        # Print what we have done!
+        print(f'Finalized atlas saved to {atlas_dir}')
                     
             
                     

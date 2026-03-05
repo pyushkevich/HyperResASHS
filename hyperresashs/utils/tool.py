@@ -6,6 +6,7 @@ from scipy.ndimage import label as ndi_label
 from scipy.linalg import polar
 from picsl_c3d import Convert3D
 import shutil
+import torch
 
 def flip_image(input_path, output_path, flip_axis):
     image_itk = sitk.ReadImage(input_path)
@@ -162,31 +163,52 @@ def linear_resample_to_spacing_using_itkimage(image_primary, new_spacing):
 
     return resampled_image
 
-def copy_or_link_file(src, dst, create_links=True, force_overwrite=False):
+def copy_or_link_file(src, dst, create_links=True, force_overwrite=False, relative_links=True, create_dir=False, quiet=False):
+    """
+    Copy or create a symbolic link for a file, with options to control behavior when the destination already exists.
+    Parameters:
+    - src: Source file path (existing file to copy or to which link will point)
+    - dst: Destination file path (where to copy or create link)
+    - create_links: If True, create a symbolic link instead of copying the file. Default is True.
+    - force_overwrite: If True, overwrite the destination file/link if it already exists. Default is False.
+    - relative_links: If True and create_links is True, create a relative symbolic link. Default is True.
+    - create_dir: If True, create the parent directory of the destination if it does not exist. Default is False.
+    - quiet: If True, suppress output messages. Default is False.
+    """
     # Implement the following logic:
     #   - If existing file is different mode than desired, delete it first
     #   - If existing file is same mode as desired and is a file, and force_overwrite is False, skip copying/linking
     #   - If existing file is same mode as desired and is a link, and force_overwrite is False, skip copying/linking but only if it's referencing the same source
+    qprint = print if not quiet else lambda *args, **kwargs: None
+    dir = os.path.dirname(dst)
+    if create_dir:
+        os.makedirs(dir, exist_ok=True)
+        
     if os.path.exists(dst):
         if create_links and os.path.islink(dst):
             existing_src = os.readlink(dst)
             if existing_src == os.path.abspath(src) and not force_overwrite:
                 return
             else:
-                print(f"Existing link at {dst} points to {existing_src}, which is different from desired source {src}. Removing it.")
+                qprint(f"Existing link at {dst} points to {existing_src}, which is different from desired source {src}. Removing it.")
                 os.remove(dst)
         elif not create_links and os.path.isfile(dst):
             if not force_overwrite:
                 return
             else:
-                print(f"Existing file at {dst} will be overwritten.")
+                qprint(f"Existing file at {dst} will be overwritten.")
                 os.remove(dst)
         else:
-            print(f"Existing file at {dst} is of a different type than desired. Removing it.")
+            qprint(f"Existing file at {dst} is of a different type than desired. Removing it.")
             os.remove(dst)
             
     if create_links:
-        os.symlink(os.path.abspath(src), dst)
+        if relative_links:
+            # Compute the relative path of source from the destination directory
+            dir_fd = os.open(os.path.abspath(dir), os.O_RDONLY )
+            os.symlink(os.path.relpath(src, dir), os.path.relpath(dst, dir), dir_fd=dir_fd)
+        else:
+            os.symlink(os.path.abspath(src), dst)
     else:
         shutil.copy(src, dst)
         
@@ -230,5 +252,42 @@ def set_nifti_sform_matrix(img:sitk.Image, M:np.ndarray):
     img.SetDirection(U.flatten())
     img.SetSpacing(P.diagonal())
     img.SetOrigin(b_lps)
+    
+    
+def nnunet_get_num_cpu_threads(user_value) -> int:
+    max_threads = os.cpu_count() or 1
+    if user_value < 1:
+        return max_threads
+    else:
+        return min(user_value, max_threads)
 
+
+def nnunet_configure_device(device:str, num_cpu_threads: int) -> torch.device:
+    if device == 'auto':
+        if torch.cuda.is_available():
+            device = 'cuda'
+        elif torch.backends.mps.is_available():
+            device = 'mps'
+        else:
+            device = 'cpu'
+        print(f"Auto-detected device: {device}")
+    
+    if device == 'cpu':
+        # let's allow torch to use hella threads
+        nt = nnunet_get_num_cpu_threads(num_cpu_threads)
+        print(f"Using {nt} CPU threads for nnUNet training.")
+        if torch.get_num_threads() != nt:
+            torch.set_num_threads(nt)
+        return torch.device('cpu')
+    elif device == 'cuda':
+        # multithreading in torch doesn't help nnU-Net if run on GPU
+        if torch.get_num_threads() != 1:
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
+        return torch.device(device)
+    elif device == 'mps':
+        return torch.device('mps')
+    else:
+        raise ValueError(f"Unsupported device specified: {device}. Please use 'cpu', 'mps', or 'cuda'.")
+    
     
