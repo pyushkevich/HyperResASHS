@@ -421,12 +421,14 @@ def run_segmentation(args):
         dest = os.path.join(args.workdir, f'{img_type}.nii.gz')
         copy_or_link_file(img_path, dest, create_links=create_links, force_overwrite=overwrite_existing, relative_links=False)
             
-    # Run the segmentation    
+    # Run the segmentation 
+    print('-' * 60)   
     print(f"Running HyperResASHS with:")
     print(f"  Atlas:   {args.atlas}")
     print(f"  T1:      {args.t1}")
     print(f"  T2:      {args.t2}")
     print(f"  Workdir: {args.workdir}")
+    print('-' * 60)
     tester.run_inference_for_one_case(case_path=args.workdir, 
                                       save_intermediates=args.tidy is False, 
                                       overwrite_existing=overwrite_existing, 

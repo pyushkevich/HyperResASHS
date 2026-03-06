@@ -69,15 +69,12 @@ class HyperASHSInference():
                             save_intermediates=save_intermediates, 
                             create_links=create_links) 
 
-        # create the folder for hyper-resolution inference
-        hyper_test_path = join(case_path, self.test_folder)
-        os.makedirs(hyper_test_path, exist_ok=True)
-        
         # Create timers for all elements of the pipeline            
         tm_all, tm_nnunet = Timer(), Timer()
         with tm_all:
             
             # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
+            print('--- HyperResASHS Stage 1: Neck Trim and Registration ---')
             reg.preprocess(exp, callback=callback, progress_range=(0.0, 0.25))
 
             # ------- nnunet inference -------
@@ -86,7 +83,7 @@ class HyperASHSInference():
                 for i_side_, (side_, lp) in enumerate(exp.lpe.items()):
 
                     # command
-                    print(f'start running inference for {side_} patch with nnUNet model {self.nnunet_model} on device {torch_device}...')
+                    print(f'--- HyperResASHS Stage 2-{side_}: nnUNet Inference ---')
                     start = time.time()
 
                     # nnUNet prediction
@@ -168,6 +165,7 @@ class HyperASHSInference():
                              attachments={f'{side_.capitalize()} Segmentation QC': lp.fn_segmentation_qc})
             
             # ------- final post-processing -------
+            print('--- HyperResASHS Stage 3: Post-Processing ---')
             reg.postprocess(exp, callback=callback, progress_range=(0.95, 1.0))
                     
         print(f'ASHS inference completed for case: {case_path}')

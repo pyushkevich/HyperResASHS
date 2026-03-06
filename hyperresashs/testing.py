@@ -238,7 +238,7 @@ class ModelTester():
         if self.check_roi_existence(case_path) == 0:
             # ------- global registration (from T1 to T2) new added pipeline -------
             t2_whole_img = join(case_path, self.nm.t2_whole_img)
-            t1_whole_img_before_registration = join(case_path, self.nm.t1_whole_img_before_registeration)
+            t1_whole_img_before_registration = join(case_path, self.nm.t1_native_img)
 
             save_mat_path_t2_to_t1_global = join(case_path, 'global_matrix_3tt2_to_3tt1.mat')
             g = Greedy3D()

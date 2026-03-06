@@ -180,6 +180,7 @@ class HyperASHSTraining:
         
         # Initialize the experiment dictionary to store the ASHSExperimentBase objects for each case
         self.d_exp = {}
+        self.d_exp_by_side = {}
         for i, (key,row) in enumerate(self.df.iterrows()):
             
             # This is to avoid PyLance typing errors
@@ -195,6 +196,10 @@ class HyperASHSTraining:
                                                             subject=subject, date=date, 
                                                             inr_path=inr_path_map,
                                                             nnunet_train_id={'left': i*2, 'right': i*2+1})
+            
+            # Also store the experiments by side for easy access during INR training
+            for side in ['left', 'right']:
+                self.d_exp_by_side[(subject, date, side)] = self.d_exp[(subject,date)]
             
         
     # Make sure all the keys that are required for inference are included in the config    
@@ -217,19 +222,38 @@ class HyperASHSTraining:
                 else:
                     raise ValueError(f'Missing required config key: {key}')
             
-    
-    def filter_cases(self, filter=None):
-        for (subject, date), exp in self.d_exp.items():
-            if filter is not None:
-                case_id = f'{subject}_{date}'
-                if not re.search(filter, case_id):
-                    continue
-            yield ((subject, date), exp)
+    def _filter_as_int(self, filter:str|None) -> int:
+        if filter is not None:
+            try:
+                return int(filter)
+            except:
+                pass
+        return -1
             
     
-    def filter_cases_by_side(self, filter=None):
-        for (subject, date), exp in self.d_exp.items():
-            for side in ['left', 'right']:
+    def _filter_cases_by_subject(self, filter=None):
+        filter_idx = self._filter_as_int(filter)
+        for k, ((subject, date), exp) in enumerate(self.d_exp.items()):
+            if filter_idx >= 0:
+                if k == filter_idx:
+                    yield ((subject, date), exp)
+                    return
+            else:
+                case_id = f'{subject}_{date}'
+                if filter is not None and not re.search(filter, case_id):
+                    continue
+                yield ((subject, date), exp)
+            
+    
+    def _filter_cases_by_side(self, filter=None):
+        # The filter string may be an index
+        filter_idx = self._filter_as_int(filter)
+        for k, ((subject, date, side), exp) in enumerate(self.d_exp_by_side.items()):
+            if filter_idx >= 0:
+                if k == filter_idx:
+                    yield ((subject, date, side), exp)
+                    return
+            else:
                 case_id = f'{subject}_{date}_{side}'
                 if filter is not None and not re.search(filter, case_id):
                     continue
@@ -252,7 +276,7 @@ class HyperASHSTraining:
                             create_links=self.create_links) 
         
         # Perform initial processing steps for each case (registration, INR preprocessing, and nnUNet preprocessing)
-        d_filter = dict(self.filter_cases(filter))
+        d_filter = dict(self._filter_cases_by_subject(filter))
         for i, ((subject, date), exp) in enumerate(d_filter.items()):
 
             print('=' * 40)
@@ -300,7 +324,7 @@ class HyperASHSTraining:
             config["TRAINING"]["SEED"] = random_seed
 
         # Run INR for each subject
-        d_filter = dict(self.filter_cases_by_side(filter))           
+        d_filter = dict(self._filter_cases_by_side(filter))           
         for i, ((subject, date, side), exp) in enumerate(d_filter.items()):
             case_id = f'{subject}_{date}_{side}'
             lp = exp.lpe[side]
@@ -353,10 +377,10 @@ class HyperASHSTraining:
             lp.t2_patch_hyperres_seg.data = c3d.peek(-1)   
             
             # Compute overlap between the upsampled segmentation and what was input
-            c3d.push(lp.inr_seg.data)
+            c3d.push(lp.input_seg.data)
             c3d.execute('-push S -int 0 -reslice-identity')
             ovl = sitk.LabelOverlapMeasuresImageFilter()
-            ovl.Execute(sitk.Cast(lp.inr_seg.data, sitk.sitkInt16), sitk.Cast(c3d.peek(-1), sitk.sitkInt16))
+            ovl.Execute(sitk.Cast(lp.input_seg.data, sitk.sitkInt16), sitk.Cast(c3d.peek(-1), sitk.sitkInt16))
             dice = { label: ovl.GetDiceCoefficient(label) for label in self.labels.label_ids }
             
             # Write the overlap to a file
@@ -368,7 +392,7 @@ class HyperASHSTraining:
             
             
     def validity_check_inr_results(self) -> bool:
-        d_filter = dict(self.filter_cases_by_side())      
+        d_filter = dict(self._filter_cases_by_side())      
         n_failed = 0     
         for i, ((subject, date, side), exp) in enumerate(d_filter.items()):
             case_id = f'{subject}_{date}_{side}'
@@ -408,7 +432,7 @@ class HyperASHSTraining:
     def _make_nnunet_dataset_json(self, fn_dataset_json):
         
         # Count total number of training datasets.
-        d_filter = dict(self.filter_cases_by_side())           
+        d_filter = dict(self._filter_cases_by_side())           
         max_nnunet_id = -1
         for i, ((subject, date, side), exp) in enumerate(d_filter.items()):
             lp = exp.lpe[side]
@@ -451,7 +475,7 @@ class HyperASHSTraining:
         
         # Based on the subjects splits, assign individual nnUnet inputs to splits
         nnunet_splits = [ {'train':[], 'val':[]} for x in subj_splits ]
-        for ((subject, date, side), exp) in self.filter_cases_by_side():
+        for ((subject, date, side), exp) in self._filter_cases_by_side():
             for i, subj_split in enumerate(subj_splits):
                 nnunet_id = f'MTL_{exp.lpe[side].nnunet_train_id:03d}'
                 if subject in subj_split:
@@ -513,7 +537,7 @@ class HyperASHSTraining:
         self._make_nnunet_dataset_json(fn_dataset_json)
         
         # Export each experiment into its own folder in a sequentially numbered format
-        d_filter = dict(self.filter_cases_by_side()) 
+        d_filter = dict(self._filter_cases_by_side()) 
         
         # Use tqdm to track progress:
         for ((subject, date, side), exp) in tqdm(d_filter.items(), desc="Organizing nnUNet training data"):
@@ -629,7 +653,7 @@ class HyperASHSTraining:
         # Compute table of summary Dice measures
         c_labels = [label['name'] for id, label in self.labels.labels.items() if id > 0 ]
         d_val_dice_for_df = { k:[] for k in ['id', 'date', 'side'] + c_labels }
-        d_filter = dict(self.filter_cases_by_side()) 
+        d_filter = dict(self._filter_cases_by_side()) 
         for ((subject, date, side), exp) in d_filter.items():
             lp = exp.lpe[side]
             nnunet_id = f'MTL_{lp.nnunet_train_id:03d}'
