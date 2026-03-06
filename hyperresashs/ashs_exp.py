@@ -159,6 +159,9 @@ class GlobalPipelineElements:
         self.t1_neck_trim = LazyInt16Image(join(case_path, nm.t1_neck_trim_img))
         self.t1_reg_to_t2 = LazyInt16Image(join(case_path, nm.t1_aligned_to_t2_img))
         self.template_to_3tt1 = LazyInt16Image(join(case_path, nm.template_to_t1_warped_img))
+        
+        # Final labelfile
+        self.fn_final_labelfile = join(case_path, nm.final_labelfile)
     
 
 class TemplatePipelineElements:

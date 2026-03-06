@@ -296,7 +296,7 @@ class HyperASHSTraining:
             reg.preprocess(exp)
             reg.prepare_inr(exp)
             
-    def train_inr(self, filter=None, device='cuda', random_seed:int|None=None):
+    def train_inr(self, filter=None, device='cuda', random_seed:int|None=None, batch_size:int|None=None):
         """
         Train the INR model for each case in the manifest file using the preprocessed data.
         """ 
@@ -316,8 +316,13 @@ class HyperASHSTraining:
             
         # Set common fields in the config file
         config["SETTINGS"]["DIRECTORY"] = self.dir_inr_training
+        config["SETTINGS"]["NUM_WORKERS"] = self.nnunet_threads
         config["MODEL"]["MODEL_CLASS"] = 'MLPv2WithEarlySeg'
         config["TRAINING"]["EPOCHS"] = 60
+        
+        # Set batch size if specified
+        if batch_size is not None:
+            config["TRAINING"]["BATCH_SIZE"] = batch_size
         
         # Set random seed if specified
         if random_seed is not None:

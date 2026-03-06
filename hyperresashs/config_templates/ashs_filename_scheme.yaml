@@ -35,12 +35,13 @@ t2_hyperres_patch_img: "tse_patch_hyperres_{side}.nii.gz"
 t1_hyperres_patch_img: "mprage_warped_to_tse_patch_hyperres_{side}.nii.gz"
 
 # ------- nnUNet processing directories -------
-nnunet_input_dir: "nnunet/{dataset}/input"
-nnunet_output_dir: "nnunet/{dataset}/output"
+nnunet_input_dir: "nnunet/{dataset}/{side}/input"
+nnunet_output_dir: "nnunet/{dataset}/{side}/output"
 
 # ------- Final segmentation outputs -------
 final_hyperres_seg: "final/tse_patch_hyperres_seg_{side}.nii.gz"
 final_native_seg: "final/tse_native_seg_{side}.nii.gz"
+final_labelfile: "final/itksnap_labels.txt"
 
 # ------- QC images -------
 registration_qc: "qc/registration_qc_{side}.png"

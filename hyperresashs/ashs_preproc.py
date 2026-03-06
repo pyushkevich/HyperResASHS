@@ -178,8 +178,8 @@ class SegmentationLabelMap():
                 if line and not line.startswith('#'):
                     parts = line.split()
                     label_id = int(parts[0])
-                    color = list(map(float, parts[1:4]))
-                    alpha = float(parts[4])
+                    color = list(map(int, parts[1:4]))
+                    alpha = int(parts[4])
                     name = ' '.join(parts[7:]).strip('"')
                     label_dict[label_id] = {'color': color, 'alpha': alpha, 'name': name}
         return label_dict

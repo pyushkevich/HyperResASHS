@@ -153,8 +153,10 @@ def main():
                               help='Path to ITK-SNAP label description file. See documentation for expected format.')
     train_parser.add_argument('-x', '--xval', type=str, default=None,
                               help='Cross-validation fold specification. See documentation for expected format.')
-    train_parser.add_argument('-R', '--random-seed', type=int, default=None, 
+    train_parser.add_argument('-R', '--inr-random-seed', type=int, default=None, 
                               help='Specify random seed for the INR optimization; use to rerun failed INR experiments.')
+    train_parser.add_argument('--inr-batch-size', type=int, default=None, 
+                              help='Specify batch size for the INR optimization. Default: 10000')
     
     train_parser.add_argument('-s', '--stage', type=str, default='',
                               help='''
@@ -173,6 +175,7 @@ def main():
                               For stage 3 (nnU-Net preparation), this is ignored.
                               For stage 4 (nnU-Net training), REGEX is matched to fold number (0-4)
                               ''')
+
 
     # Add common arguments for run and train subcommands
     for p in [run_parser, train_parser]:
@@ -485,7 +488,7 @@ def run_training(args) -> int:
     # Set up stages and validations for the training pipeline
     stages = [
         (1, trainer.preprocess, {'filter': args.filter}, None),
-        (2, trainer.train_inr, {'filter': args.filter, 'device': args.device, 'random_seed': args.random_seed}, trainer.validity_check_inr_results),
+        (2, trainer.train_inr, {'filter': args.filter, 'device': args.device, 'random_seed': args.inr_random_seed, 'batch_size': args.inr_batch_size}, trainer.validity_check_inr_results),
         (3, trainer.prepare_nnunet, {}, None),
         (4, trainer.train_nnunet, {'filter': args.filter, 'device': args.device}, trainer.validity_check_nnunet_results),
         (5, trainer.finalize, {'full_metadata': atlas_config}, None)
