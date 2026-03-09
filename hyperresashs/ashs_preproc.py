@@ -20,6 +20,22 @@ from matplotlib.gridspec import GridSpec
 from typing import Protocol, Dict, Literal, Type, Callable, Any, Tuple, List
 import sys
 
+_itksnap_label_file_preamble="""
+################################################
+# ITK-SnAP Label Description File
+# File format:
+# IDX   -R-  -G-  -B-  -A--  VIS MSH  LABEL
+# Fields:
+#    IDX:   Zero-based index
+#    -R-:   Red color component (0..255)
+#    -G-:   Green color component (0..255)
+#    -B-:   Blue color component (0..255)
+#    -A-:   Label transparency (0.00 .. 1.00)
+#    VIS:   Label visibility (0 or 1)
+#    MSH:   Label mesh visibility (0 or 1)
+#  LABEL:   Label description
+################################################"""
+
 
 # Normalize a simple ITK image to 0-255 range
 def normalize_intensity_to_uchar(img: sitk.Image, qtile=0.995) -> sitk.Image:
@@ -203,11 +219,12 @@ class SegmentationLabelMap():
     
     def export_itksnap_label_file(self, output_path: str):
         with open(output_path, 'w') as f:
+            f.write(_itksnap_label_file_preamble.strip() + '\n')
             for label_id, info in self.labels.items():
                 color = info['color']
                 alpha = info['alpha']
                 name = info['name']
-                f.write(f'{label_id} {color[0]} {color[1]} {color[2]} {alpha} {alpha} {alpha} "{name}"\n')
+                f.write(f'{label_id:4d} {color[0]:4d} {color[1]:4d} {color[2]:4d}\t{alpha:2d} {alpha:2d} {alpha:2d}\t"{name}"\n')
                 
     def to_nnunet_dict_with_contiguous_labels(self):
         nnunet_labels = {'background': 0}

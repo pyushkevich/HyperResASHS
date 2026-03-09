@@ -169,7 +169,7 @@ class HyperASHSInference():
             reg.postprocess(exp, callback=callback, progress_range=(0.95, 1.0))
             
             # Save the label mapping used for this case (for visualization in ITK-SNAP)
-            self.labelset.export_itksnap_label_file(exp.fn_final_labelfile)
+            self.labelset.export_itksnap_label_file(exp.gpe.fn_final_labelfile)
                     
         print(f'ASHS inference completed for case: {case_path}')
         print(f'  Time in neck trimming: {reg.tm_neck.total:.2f}s')
