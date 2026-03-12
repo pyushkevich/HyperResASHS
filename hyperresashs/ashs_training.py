@@ -239,7 +239,7 @@ class HyperASHSTraining:
                     yield ((subject, date), exp)
                     return
             else:
-                case_id = f'{subject}_{date}'
+                case_id = f'{subject}_{date}_{side}' if date != 'nodate' else f'{subject}_{side}'
                 if filter is not None and not re.search(filter, case_id):
                     continue
                 yield ((subject, date), exp)
@@ -254,7 +254,7 @@ class HyperASHSTraining:
                     yield ((subject, date, side), exp)
                     return
             else:
-                case_id = f'{subject}_{date}_{side}'
+                case_id = f'{subject}_{date}_{side}' if date != 'nodate' else f'{subject}_{side}'
                 if filter is not None and not re.search(filter, case_id):
                     continue
                 yield ((subject, date, side), exp)
@@ -296,7 +296,7 @@ class HyperASHSTraining:
             reg.preprocess(exp)
             reg.prepare_inr(exp)
             
-    def train_inr(self, filter=None, device='cuda', random_seed:int|None=None, batch_size:int|None=None):
+    def train_inr(self, filter=None, device='cuda', random_seed:int|None=None, batch_size:int|None=None, num_epochs:int|None=None):
         """
         Train the INR model for each case in the manifest file using the preprocessed data.
         """ 
@@ -323,6 +323,9 @@ class HyperASHSTraining:
         # Set batch size if specified
         if batch_size is not None:
             config["TRAINING"]["BATCH_SIZE"] = batch_size
+        
+        if num_epochs is not None:
+            config["TRAINING"]["EPOCHS"] = num_epochs
         
         # Set random seed if specified
         if random_seed is not None:
@@ -354,7 +357,7 @@ class HyperASHSTraining:
                 yaml.safe_dump(config, f, sort_keys=False)
                             
             saved_args = sys.argv
-            sys.argv = ['test', '--config', inr_config, '--logging']
+            sys.argv = ['test', '--config', inr_config]
 
             # Time the INR
             with Timer() as tm_inr:            

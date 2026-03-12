@@ -156,7 +156,9 @@ def main():
     train_parser.add_argument('-R', '--inr-random-seed', type=int, default=None, 
                               help='Specify random seed for the INR optimization; use to rerun failed INR experiments.')
     train_parser.add_argument('--inr-batch-size', type=int, default=None, 
-                              help='Specify batch size for the INR optimization. Default: 10000')
+                              help='Specify batch size for the INR optimization. Default: 2000')
+    train_parser.add_argument('--inr-epochs', type=int, default=None, 
+                              help='Number of epochs for the INR optimization. Default: 60')
     
     train_parser.add_argument('-s', '--stage', type=str, default='',
                               help='''
@@ -488,7 +490,10 @@ def run_training(args) -> int:
     # Set up stages and validations for the training pipeline
     stages = [
         (1, trainer.preprocess, {'filter': args.filter}, None),
-        (2, trainer.train_inr, {'filter': args.filter, 'device': args.device, 'random_seed': args.inr_random_seed, 'batch_size': args.inr_batch_size}, trainer.validity_check_inr_results),
+        (2, trainer.train_inr, {'filter': args.filter, 'device': args.device, 
+                                'random_seed': args.inr_random_seed, 
+                                'batch_size': args.inr_batch_size, 
+                                'num_epochs': args.inr_epochs}, trainer.validity_check_inr_results),
         (3, trainer.prepare_nnunet, {}, None),
         (4, trainer.train_nnunet, {'filter': args.filter, 'device': args.device}, trainer.validity_check_nnunet_results),
         (5, trainer.finalize, {'full_metadata': atlas_config}, None)

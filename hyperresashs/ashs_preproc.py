@@ -549,21 +549,26 @@ class ASHSProcessor:
                 c3d = Convert3D()
                 c3d.execute(f'-threads {nt}')
                 
-                # Crop the primary image
+                # Crop the primary image. We want to keep its native spacing but use the segmentations' bounds
+                # to trim the image. Since we allow the manual segmentation to not be in the same spacing as the
+                # T2 image we have to first reslice the segmentation into the T2 space, and then use it to crop the T2 image.
                 c3d.push(gpe.t2_whole_img.data)
                 c3d.push(lp.input_seg.data)
-                c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI -as T2P')
+                c3d.execute(f'-trim 5mm -popas S -as T2 -push S -thresh 1 inf 1 0 -reslice-identity -thresh 0.5 inf 1 0 -trim 5mm -as S_T2 -push T2 -reslice-identity -swapdim RPI -as T2P')
                 lp.inr_primary.data = c3d.peek(-1)
+                
+                # Also generate a dummy mask
+                c3d.execute(f'-clear -push T2P -scale 0 -shift 1 -as T2M')
+                lp.inr_primary_mask.data = c3d.peek(-1)
                 
                 # Upsample this image to near-isotropic spacing (this is the INR 'ground truth'?)
                 scale_cmd = self.get_close_to_iso_integer_scaling(lp.inr_primary.data)
-                c3d.execute(f'-int 1 -resample {scale_cmd} -as T2GT')
+                c3d.execute(f'-clear -push T2P -int 1 -resample {scale_cmd} -as T2GT')
                 lp.inr_primary_gt.data = c3d.peek(-1)
                 
                 # Write out the segmentation and dummy mask
-                c3d.execute(f'-clear -push S -swapdim RPI -push S -scale 0 -shift 1 -as T2M')
-                lp.inr_primary_seg.data = c3d.peek(-2)
-                lp.inr_primary_mask.data = c3d.peek(-1)
+                c3d.execute(f'-clear -push S -swapdim RPI')
+                lp.inr_primary_seg.data = c3d.peek(-1)
                 
                 # Crop the secondary image. Here we first need to define the ROI in the T1 space
                 # and then use it to crop the T1 image. The Greedy command applies rigid transform

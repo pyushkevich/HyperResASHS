@@ -1,6 +1,6 @@
 [project]
 name="hyperresashs"
-version="1.0.0"
+version="1.0.1"
 requires-python = ">=3.10"
 description="Isotropic segmentation pipeline for MTL subregions from multi-modality 3T MRI"
 readme="README.md"
@@ -77,7 +77,7 @@ build-backend = "setuptools.build_meta"
 hrashs = "hyperresashs.ashs_cli:main"
 
 [tool.setuptools]
-packages = ["hyperresashs"]
+packages = { find = { exclude = ["hyperresashs.submodules*"] } }
 
 [tool.setuptools.package-data]
 hyperresashs = [
