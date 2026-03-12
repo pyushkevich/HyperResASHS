@@ -16,6 +16,7 @@ import yaml
 import sys
 from typing import Dict, Any
 from importlib.resources import files
+import traceback
 
 """
 Original ASHS command line help message for reference:
@@ -178,7 +179,9 @@ def main():
                               For stage 4 (nnU-Net training), REGEX is matched to fold number (0-4)
                               ''')
 
-
+    # List atlases subcommand
+    check_parser = subparsers.add_parser('check', help='Check if HyperResASHS installed successfully')
+    
     # Add common arguments for run and train subcommands
     for p in [run_parser, train_parser]:
         p.add_argument('-w', '--workdir', type=str, required=True, 
@@ -197,10 +200,10 @@ def main():
                        help='Tidy mode. Reduce the number of intermediate files generated.')
 
     # Add -k flag for all relevant sub parsers
-    for p in [list_parser, run_parser, describe_parser, train_parser]:
+    for p in [list_parser, run_parser, describe_parser, train_parser, check_parser]:
         p.add_argument('-k', '--disable-ssl-verification', action='store_true', 
                        help='Disable SSL verification for Hugging Face Hub access')
-    
+        
     args = parser.parse_args()
     
     # Disable SSL verification if requested
@@ -217,6 +220,8 @@ def main():
         run_segmentation(args)
     elif args.command == 'train':
         return run_training(args)
+    elif args.command == 'check':
+        return run_check(args)
     else:
         raise ValueError(f"Unknown command: {args.command}")
         
@@ -378,6 +383,38 @@ def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_
     
     return config
 
+
+def run_check(args):
+    """Check if HyperResASHS installed successfully."""
+    
+    # Test nnU-Net
+    try:
+        from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+    except ImportError as e:
+        # Print original error and stack trace for debugging
+        print("Error: HyperResASHS cannot access its internal modified nnU-Net package.")
+        print("Original error message:")
+        traceback.print_exc() 
+        print("System path:")
+        for p in sys.path:
+            print(f"  {p}")
+        return 1
+    
+    # Test INR code
+    try:
+        from .submodules.multi_contrast_inr.main import main as inr_main
+    except ImportError as e:
+        print("Error: HyperResASHS cannot access its internal multi-contrast INR code.")
+        print("Original error message:")
+        traceback.print_exc() 
+        print("System path:")
+        for p in sys.path:
+            print(f"  {p}")
+        return 1
+    
+    print("HyperResASHS installation check successful!")
+    print(f"Version: {__version__}")
+    return 0
         
 
 def run_segmentation(args):
