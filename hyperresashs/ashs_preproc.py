@@ -641,6 +641,8 @@ class ASHSProcessor:
                 g.execute(f'-threads {self.greedy_num_threads} -rf t2 -ri LABEL 0.2vox '
                             f'-rm final_seg {lp.t2_seg_native.filename} -r ',
                             t2=exp.gpe.t2_whole_img.data, final_seg=lp.nnunet_seg.data)
+
+                
                 
         callback(progress=1.0, progress_range=progress_range, message=f"Post-processing completed in {self.tm_finalize.total:.1f} s.")
                 

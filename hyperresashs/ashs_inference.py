@@ -7,8 +7,11 @@ import yaml
 from types import SimpleNamespace
 import torch
 import time
+import numpy as np
 import shutil
 import tempfile
+import pandas as pd
+import SimpleITK as sitk
 
 class HyperASHSInference():
     def __init__(self, config):
@@ -54,7 +57,8 @@ class HyperASHSInference():
                 self.run_inference_for_one_case(date_path, subject=subject_, date=date_)
     
 
-    def run_inference_for_one_case(self, case_path, subject:str|None=None, date:str|None=None,
+    def run_inference_for_one_case(self, mprage:str, tse:str, case_path:str, 
+                                   subject:str|None=None, date:str|None=None,
                                    save_intermediates: bool = True, overwrite_existing: bool = False,
                                    create_links: bool = True,
                                    callback: ProgressCallbackType = default_progress_callback, 
@@ -72,6 +76,10 @@ class HyperASHSInference():
         # Create timers for all elements of the pipeline            
         tm_all, tm_nnunet = Timer(), Timer()
         with tm_all:
+            
+            # Copy or link the raw input images
+            for dst, src in [(exp.gpe.t1_native, mprage), (exp.gpe.t2_whole_img, tse)]:        
+                copy_or_link_file(src, dst.filename, create_links=create_links, force_overwrite=overwrite_existing, relative_links=False)
             
             # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
             print('--- HyperResASHS Stage 1: Neck Trim and Registration ---')
@@ -167,6 +175,24 @@ class HyperASHSInference():
             # ------- final post-processing -------
             print('--- HyperResASHS Stage 3: Post-Processing ---')
             reg.postprocess(exp, callback=callback, progress_range=(0.95, 1.0))
+            
+            # Compute and export CSV of structures in the segmentations
+            vols = { 'side': [], 'subfield': [], 'volume': [] }
+            for side_, lp in exp.lpe.items():
+                seg = sitk.GetArrayFromImage(lp.nnunet_seg.data)
+                voxel_size = np.prod(lp.nnunet_seg.data.GetSpacing())
+                for label_id, label_data in self.labelset.labels.items():
+                    if label_id != 0:
+                        vols['side'].append(side_)
+                        vols['subfield'].append(label_data['name'])
+                        vols['volume'].append(np.sum(seg == label_id) * voxel_size)
+            df_vols = pd.DataFrame(vols)
+            if exp.subject:
+                if exp.date:
+                    df_vols.insert(0, 'date', exp.date)        
+                df_vols.insert(0, 'subject', exp.subject)
+                
+            df_vols.to_csv(exp.gpe.fn_final_volumes_csv, index=False)
             
             # Save the label mapping used for this case (for visualization in ITK-SNAP)
             self.labelset.export_itksnap_label_file(exp.gpe.fn_final_labelfile)

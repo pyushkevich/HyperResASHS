@@ -239,7 +239,7 @@ class HyperASHSTraining:
                     yield ((subject, date), exp)
                     return
             else:
-                case_id = f'{subject}_{date}_{side}' if date != 'nodate' else f'{subject}_{side}'
+                case_id = f'{subject}_{date}' if date != 'nodate' else f'{subject}'
                 if filter is not None and not re.search(filter, case_id):
                     continue
                 yield ((subject, date), exp)
@@ -320,17 +320,19 @@ class HyperASHSTraining:
         config["MODEL"]["MODEL_CLASS"] = 'MLPv2WithEarlySeg'
         config["TRAINING"]["EPOCHS"] = 60
         
-        # Set batch size if specified
+        # Settings for INR are taken from parameter, if absent then config
+        batch_size = batch_size or self.config.get('INR_BATCH_SIZE', None)
         if batch_size is not None:
             config["TRAINING"]["BATCH_SIZE"] = batch_size
-        
+            
+        num_epochs = num_epochs or self.config.get('INR_EPOCHS', None)
         if num_epochs is not None:
             config["TRAINING"]["EPOCHS"] = num_epochs
-        
-        # Set random seed if specified
+            
+        random_seed = random_seed or self.config.get('INR_RANDOM_SEED', None)
         if random_seed is not None:
             config["TRAINING"]["SEED"] = random_seed
-
+        
         # Run INR for each subject
         d_filter = dict(self._filter_cases_by_side(filter))           
         for i, ((subject, date, side), exp) in enumerate(d_filter.items()):
@@ -342,6 +344,7 @@ class HyperASHSTraining:
                 print(f'Skipping case {case_id} because output already exists and overwrite_existing=True')
                 continue
             
+
             print('=' * 40)
             print(f'Training INR for case {i+1}/{len(d_filter)}: {subject} - {date} - {side}')
             
@@ -351,6 +354,10 @@ class HyperASHSTraining:
             config["DATASET"]["SUBJECT_ID"] = case_id
             config["SETTINGS"]["SAVE_PATH"] = inr_result_dir
             
+            # If overwriting, force dataset regeneration in case something has changed
+            if self.overwrite_existing:
+                shutil.rmtree(join(inr_result_dir, 'preprocessed_data'), ignore_errors=True)
+                        
             # Write the config file
             inr_config = join(inr_work_dir, 'config.yaml')
             with open(inr_config, 'w') as f:

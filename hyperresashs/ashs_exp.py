@@ -146,22 +146,26 @@ class LazyInt16Image(LazyImage):
  
 # This class stores the images generated using processing
 class GlobalPipelineElements:
-    def __init__(self, case_path:str, nm: SimpleNamespace):
+    def __init__(self, case_path:str, nm: SimpleNamespace, prefix:str=''):
+
+        format = lambda fn: fn.format(prefix=prefix)
+
         # Registration matrices
-        self.fn_save_mat_path_t2_to_t1_global = join(case_path, nm.t1_to_t2_affine_mat)
-        self.fn_template_to_3tt1_affine_matrix = join(case_path, nm.template_to_t1_affine_mat)
+        self.fn_save_mat_path_t2_to_t1_global = join(case_path, format(nm.t1_to_t2_affine_mat))
+        self.fn_template_to_3tt1_affine_matrix = join(case_path, format(nm.template_to_t1_affine_mat))
 
         # Raw inputs                
-        self.t2_whole_img = LazyImage(join(case_path, nm.t2_native_img))
-        self.t1_native = LazyImage(join(case_path, nm.t1_native_img))
+        self.t2_whole_img = LazyImage(join(case_path, format(nm.t2_native_img)))
+        self.t1_native = LazyImage(join(case_path, format(nm.t1_native_img)))
         
         # Processed images
-        self.t1_neck_trim = LazyInt16Image(join(case_path, nm.t1_neck_trim_img))
-        self.t1_reg_to_t2 = LazyInt16Image(join(case_path, nm.t1_aligned_to_t2_img))
-        self.template_to_3tt1 = LazyInt16Image(join(case_path, nm.template_to_t1_warped_img))
+        self.t1_neck_trim = LazyInt16Image(join(case_path, format(nm.t1_neck_trim_img)))
+        self.t1_reg_to_t2 = LazyInt16Image(join(case_path, format(nm.t1_aligned_to_t2_img)))
+        self.template_to_3tt1 = LazyInt16Image(join(case_path, format(nm.template_to_t1_warped_img)))
         
-        # Final labelfile
-        self.fn_final_labelfile = join(case_path, nm.final_labelfile)
+        # Final labelfile and volumes
+        self.fn_final_labelfile = join(case_path, format(nm.final_labelfile))
+        self.fn_final_volumes_csv = join(case_path, format(nm.final_volumes_csv))
     
 
 class TemplatePipelineElements:
@@ -171,10 +175,10 @@ class TemplatePipelineElements:
 
 
 class LocalPipelineElements:
-    def __init__(self, case_path:str, side:str, dataset_id: str, nm: SimpleNamespace, 
+    def __init__(self, case_path:str, side:str, dataset_id: str, nm: SimpleNamespace, prefix:str='',
                  inr_path: str|None=None, nnunet_train_id: int|None = None):
 
-        format = lambda fn: fn.format(side=side, dataset=dataset_id)
+        format = lambda fn: fn.format(side=side, dataset=dataset_id, prefix=prefix)
 
         # Folders
         # self.dir_local = join(case_path, test_folder, side)
@@ -227,13 +231,16 @@ class ASHSExperimentBase:
         self.inr_path = inr_path
         self.nnunet_train_id = nnunet_train_id
         self.dataset_id = 'Dataset{}_{}'.format(config['EXP_NUM'], config['MODEL_NAME'])
-        self.gpe = GlobalPipelineElements(case_path, nm)
-        self.lpe = { side: LocalPipelineElements(case_path, side, self.dataset_id, nm, 
+
+        self.subject = subject
+        self.date = date
+        self.prefix = f'{subject}_{date}_' if (subject and date) else f'{subject}_' if subject else ''
+        self.qc_title = f'{subject} - {date}' if (subject and date) else f'{subject}' if subject else ''
+
+        self.gpe = GlobalPipelineElements(case_path, nm, prefix=self.prefix)
+        self.lpe = { side: LocalPipelineElements(case_path, side, self.dataset_id, nm, prefix=self.prefix,
                                                  inr_path=inr_path[side] if inr_path is not None else None,
                                                  nnunet_train_id=nnunet_train_id[side] if nnunet_train_id is not None else None) 
                     for side in sides }
         self.tpe = TemplatePipelineElements(config['TEMPLATE_PATH'], nm)
-        self.subject = subject
-        self.date = date
-        self.qc_title = f'{subject} - {date}' if (subject and date) else f'{subject}' if subject else ''
 

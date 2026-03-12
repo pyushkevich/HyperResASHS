@@ -17,6 +17,8 @@ import sys
 from typing import Dict, Any
 from importlib.resources import files
 import traceback
+import tempfile
+from ssl import SSLCertVerificationError
 
 """
 Original ASHS command line help message for reference:
@@ -143,6 +145,8 @@ def main():
                            help='Path to T1-weighted image')
     run_parser.add_argument('-f', '--t2', type=str, required=True, 
                            help='Path to T2-weighted image')
+    run_parser.add_argument('-I', '--subject-id', type=str, default=None,
+                            help='Subject ID for this experiment. If specified, outputs will be prefixed with the subject ID.')
     
     # Training command
     train_parser = subparsers.add_parser('train', help='Train a HyperResASHS model on a dataset')
@@ -387,9 +391,28 @@ def _setup_config(atlas_config : Dict[str,Any], args: argparse.Namespace, atlas_
 def run_check(args):
     """Check if HyperResASHS installed successfully."""
     
+    # Check if we can connect to Hugging Face Hub
+    try:
+        get_atlas_listing()
+        print("Successfully connected to Hugging Face Hub.")
+    except Exception as e:
+        print("SSL certificate verification failed when trying to connect to Hugging Face Hub.")
+        print("This may be due to an issue with your internet connection, firewall, or SSL configuration.")
+        print("If you are behind a corporate firewall, you may need to configure your system to trust the appropriate certificates.")
+        print("Please check your internet connection and SSL settings, and try again.")
+        print("** To disable SSL verification (not recommended), you can use the -k flag with hrashs commands. **")
+        return 1
+    
     # Test nnU-Net
     try:
+        # Create a temp directory for nnUnet paths
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for k in ['raw', 'preprocessed', 'results']:
+                os.makedirs(os.path.join(temp_dir, k), exist_ok=True)
+                os.environ[f'nnUNet_{k}'] = os.path.join(temp_dir, k)
+            
         from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+        print("Successfully imported nnU-Net predictor. nnU-Net is accessible.")
     except ImportError as e:
         # Print original error and stack trace for debugging
         print("Error: HyperResASHS cannot access its internal modified nnU-Net package.")
@@ -403,6 +426,7 @@ def run_check(args):
     # Test INR code
     try:
         from .submodules.multi_contrast_inr.main import main as inr_main
+        print("Successfully imported multi-contrast INR code. INR code is accessible.")
     except ImportError as e:
         print("Error: HyperResASHS cannot access its internal multi-contrast INR code.")
         print("Original error message:")
@@ -410,6 +434,26 @@ def run_check(args):
         print("System path:")
         for p in sys.path:
             print(f"  {p}")
+        return 1
+    
+    # Test for Torch/CUDA
+    try:
+        import torch 
+        print("Successfully imported PyTorch. PyTorch is accessible.")
+        print(f"  Torch installed:  {hasattr(torch, '__version__')}")
+        if hasattr(torch, '__version__'):
+            print(f"  Torch version:    {torch.__version__}")
+            cuda_available = torch.cuda.is_available()
+            print(f"  CUDA available:   {cuda_available}")
+            if cuda_available:
+                print(f"  CUDA version:     {torch.version.cuda}")
+                print(f"  Device name:      {torch.cuda.get_device_name(0)}")
+        else:
+            print("  Warning: Could not determine PyTorch version. This may indicate an issue with the PyTorch installation.")
+    except ImportError as e:
+        print("Error: PyTorch is not installed or cannot be accessed.")
+        print("Original error message:")
+        traceback.print_exc() 
         return 1
     
     print("HyperResASHS installation check successful!")
@@ -459,9 +503,6 @@ def run_segmentation(args):
     
     # Create links in the working directory
     create_links, overwrite_existing = not args.no_links, not args.no_overwrite
-    for img_type, img_path in [('mprage', args.t1), ('tse', args.t2)]:        
-        dest = os.path.join(args.workdir, f'{img_type}.nii.gz')
-        copy_or_link_file(img_path, dest, create_links=create_links, force_overwrite=overwrite_existing, relative_links=False)
             
     # Run the segmentation 
     print('-' * 60)   
@@ -470,12 +511,15 @@ def run_segmentation(args):
     print(f"  T1:      {args.t1}")
     print(f"  T2:      {args.t2}")
     print(f"  Workdir: {args.workdir}")
+    if args.subject_id:
+        print(f"  Subject: {args.subject_id}")
     print('-' * 60)
-    tester.run_inference_for_one_case(case_path=args.workdir, 
+    tester.run_inference_for_one_case(mprage=args.t1, tse=args.t2, case_path=args.workdir, 
                                       save_intermediates=args.tidy is False, 
                                       overwrite_existing=overwrite_existing, 
                                       create_links=create_links,
-                                      device=args.device)
+                                      device=args.device, 
+                                      subject=args.subject_id)
 
 
 def run_training(args) -> int:
