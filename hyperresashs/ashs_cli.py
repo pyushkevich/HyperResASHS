@@ -143,8 +143,8 @@ def main():
                            help='Name of the atlas to use or path to atlas config file')
     run_parser.add_argument('-g', '--t1', type=str, required=True, 
                            help='Path to T1-weighted image')
-    run_parser.add_argument('-f', '--t2', type=str, required=True, 
-                           help='Path to T2-weighted image')
+    run_parser.add_argument('-f', '--t2', type=str, 
+                           help='Path to T2-weighted image. Omit to run in T1-only ASHS mode.')
     run_parser.add_argument('-I', '--subject-id', type=str, default=None,
                             help='Subject ID for this experiment. If specified, outputs will be prefixed with the subject ID.')
     
@@ -311,6 +311,21 @@ def print_header(metadata):
         print(f"\n[{i+1}]  {textwrap.fill(textwrap.dedent(ref), width=74, subsequent_indent=' ' * 5)}")
     print('' + '='*80)
     
+    
+def warn_t1_only_mode():
+    
+    caution_citation = """\
+        Wisse, L.E., Chételat, G., Daugherty, A.M., de Flores, R., la Joie, R., Mueller, S.G., 
+        Stark, C.E., Wang, L., Yushkevich, P.A., Berron, D. and Raz, N., 2021. 
+        Hippocampal subfield volumetry from structural isotropic 1 mm3 MRI scans: A note of caution. 
+        Human brain mapping, 42(2), pp.539-550."""
+    
+    print('\n' + '*'*80)
+    print("WARNING: Running in T1-only ASHS mode. ")
+    print("T1-only ASHS mode is only recommended for atlases that do not label hippocampal subfields!")
+    print("\nFor more information, see:")
+    print(f"    {textwrap.fill(textwrap.dedent(caution_citation), width=74, subsequent_indent=' ' * 5)}")
+    print('' + '*'*80 + '\n')
     
 class Logger(object):
     
@@ -494,6 +509,10 @@ def run_segmentation(args):
         
         # Download the enture atlas snapshot
         atlas_local_path = hf.snapshot_download(df_meta.iloc[0]['repo'])
+        
+    # If no T2 image is provided, print a warning about T1-only ASHS mode
+    if args.t2 is None:
+        warn_t1_only_mode()
                     
     # Set up the atlas configuration the way Yue's code expects it
     config = _setup_config(atlas_config, args, atlas_local_path, training=False)
@@ -509,7 +528,7 @@ def run_segmentation(args):
     print(f"Running HyperResASHS with:")
     print(f"  Atlas:   {args.atlas}")
     print(f"  T1:      {args.t1}")
-    print(f"  T2:      {args.t2}")
+    print(f"  T2:      {args.t2 or 'None (T1-ASHS mode)'}")
     print(f"  Workdir: {args.workdir}")
     if args.subject_id:
         print(f"  Subject: {args.subject_id}")

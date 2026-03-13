@@ -41,6 +41,7 @@ nnunet_output_dir: "nnunet/{dataset}/{side}/output"
 # ------- Final segmentation outputs -------
 final_hyperres_seg: "final/{prefix}tse_patch_hyperres_seg_{side}.nii.gz"
 final_native_seg: "final/{prefix}tse_native_seg_{side}.nii.gz"
+final_native_t1space_seg: "final/{prefix}mprage_native_seg_{side}.nii.gz"
 final_labelfile: "final/{prefix}itksnap_labels.txt"
 final_volumes_csv: "final/{prefix}hyperres_volumes.csv"
 

@@ -415,7 +415,7 @@ class HyperASHSTraining:
             
             # Check that the main output exists
             if not lp.t2_patch_hyperres_seg.exists():
-                print(f'INR result missing for case {case_id}')
+                print(f'INR result missing for case {case_id}: {lp.t2_patch_hyperres_seg.filename}')
                 n_failed += 1
                 continue
             

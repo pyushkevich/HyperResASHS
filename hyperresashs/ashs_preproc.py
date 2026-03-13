@@ -270,9 +270,10 @@ class SegmentationLabelMap():
 def generate_ashs_segmentation_qc(
     seg: sitk.Image, 
     t1: sitk.Image, 
-    t2:sitk.Image, 
+    t2: sitk.Image, 
     labelset: SegmentationLabelMap,
     output_path: str,
+    t1_only = False,
     title: str|None = None,
     trim_margin_mm: float = 3.0):
     
@@ -282,13 +283,20 @@ def generate_ashs_segmentation_qc(
     
     # Obtain a file for the c3d -oli command
     with labelset.oli_file() as label_file:
-        vols = {'t2': t2, 't1': t1, 
-                't2s': overlay_segmentation_on_image(t2, seg, label_file), 
-                't1s': overlay_segmentation_on_image(t1, seg, label_file)}
-        
-        generate_ashs_qc(vols, 
-                        row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 't2s': 'T2-seg', 't1s': 'T1-seg'},
-                        output_path=output_path, title=title)    
+        if not t1_only:
+            vols = {'t2': t2, 't1': t1, 
+                    't2s': overlay_segmentation_on_image(t2, seg, label_file), 
+                    't1s': overlay_segmentation_on_image(t1, seg, label_file)}
+            
+            generate_ashs_qc(vols, 
+                            row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 't2s': 'T2-seg', 't1s': 'T1-seg'},
+                            output_path=output_path, title=title)    
+        else:
+            vols = {'t1': t1, 't1s': overlay_segmentation_on_image(t1, seg, label_file)}
+            
+            generate_ashs_qc(vols, 
+                            row_labels={'t1': 'T1 (native)', 't1s': 'T1-seg'},
+                            output_path=output_path, title=title)
     
 
 def generate_ashs_registration_qc(
@@ -296,15 +304,24 @@ def generate_ashs_registration_qc(
     t1_to_t2: sitk.Image,
     t2_img: sitk.Image,
     output_path: str,
+    t1_only = False,
     title: str|None = None):
-    
-    vols = {'t2': normalize_intensity_to_uchar(t2_img),
-            't1': normalize_intensity_to_uchar(t1_to_t2),
-            'temp': normalize_intensity_to_uchar(template_img)}
 
-    generate_ashs_qc(vols, 
-                     row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 'temp': 'Template to T2'},
-                     output_path=output_path, title=title)
+    if not t1_only:    
+        vols = {'t2': normalize_intensity_to_uchar(t2_img),
+                't1': normalize_intensity_to_uchar(t1_to_t2),
+                'temp': normalize_intensity_to_uchar(template_img)}
+
+        generate_ashs_qc(vols, 
+                        row_labels={'t2': 'T2 (native)', 't1': 'T1 to T2', 'temp': 'Template to T2'},
+                        output_path=output_path, title=title)
+    else:
+        vols = {'t1': normalize_intensity_to_uchar(t1_to_t2),
+                'temp': normalize_intensity_to_uchar(template_img)}
+
+        generate_ashs_qc(vols, 
+                        row_labels={'t1': 'T1 (native)', 'temp': 'Template to T1'}, 
+                        output_path=output_path, title=title)
     
 
 class Timer:
@@ -358,11 +375,13 @@ def default_progress_callback(progress: float|None=None,
         
 class ASHSProcessor:
     """Common code for preprocessing T2/T1 pairs to generate ROIs for inference/training"""
-    def __init__(self, config, training_mode=False, overwrite_existing=False, save_intermediates=True, create_links=True):
+    def __init__(self, config, t1_only=False, training_mode=False, overwrite_existing=False, save_intermediates=True, create_links=True):
         self.training_mode = training_mode
         self.overwrite_existing = overwrite_existing
         self.save_intermediates = save_intermediates
         self.create_links = create_links
+        self.t1_only = t1_only
+        self.t1_only_fake_t2_spacing = config.get('T1_ONLY_FAKE_T2_SPACING', 0.4)
         self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', ASHSProcessor.get_config_defaults()['ASHS_TSE_REGION_CROP'])
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
         self.tm_neck = Timer()
@@ -417,30 +436,41 @@ class ASHSProcessor:
             
             # ------- global T1 to T2 registration using ASHS pipeline -------
             with self.tm_reg_t1_t2_whole:
-
-                # If specified, crop the T2 image before registration      
-                t2_cropped_img = rescale_intensity_to_short(gpe.t2_whole_img.data)
-                if self.t2_cropping > 0:
-                    # Create the cropping command for c3d based on the specified cropping fraction
-                    c3d  = Convert3D()
-                    c3d.push(t2_cropped_img)
-                    c = self.t2_cropping * 100
-                    c3d.execute(f'-swapdim RSA -region {c}x{c}x0% {100-2*c}x{100-2*c}x100%')
-                    t2_cropped_img = c3d.peek(-1)
                 
-                # Perform the affine registration
                 g = Greedy3D()
-                g.execute(f'-threads {nt} -z -a -dof 6 -ia-identity -m NMI '
-                        f'-i t2 t1 -n 100x100x10 -o {gpe.fn_save_mat_path_t2_to_t1_global} ', 
-                        t2=t2_cropped_img, t1=gpe.t1_neck_trim.data)
-                
-                # Apply the registration 
-                g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
-                        f'-r {gpe.fn_save_mat_path_t2_to_t1_global}', t1_reg_to_t2=None)
-                
-                if self.save_intermediates:
-                    gpe.t1_reg_to_t2.data = g['t1_reg_to_t2']
-            
+                if not self.t1_only:
+
+                    # If specified, crop the T2 image before registration      
+                    t2_cropped_img = rescale_intensity_to_short(gpe.t2_whole_img.data)
+                    if self.t2_cropping > 0:
+                        # Create the cropping command for c3d based on the specified cropping fraction
+                        c3d  = Convert3D()
+                        c3d.push(t2_cropped_img)
+                        c = self.t2_cropping * 100
+                        c3d.execute(f'-swapdim RSA -region {c}x{c}x0% {100-2*c}x{100-2*c}x100%')
+                        t2_cropped_img = c3d.peek(-1)
+                    
+                    # Perform the affine registration
+                    g.execute(f'-threads {nt} -z -a -dof 6 -ia-identity -m NMI '
+                            f'-i t2 t1 -n 100x100x10 -o {gpe.fn_save_mat_path_t2_to_t1_global} ', 
+                            t2=t2_cropped_img, t1=gpe.t1_neck_trim.data)
+                    
+                    # Apply the registration 
+                    g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
+                            f'-r {gpe.fn_save_mat_path_t2_to_t1_global}', t1_reg_to_t2=None)
+                    
+                    if self.save_intermediates:
+                        gpe.t1_reg_to_t2.data = g['t1_reg_to_t2']
+                        
+                else:
+                    
+                    # Write identity matrix for T1 to T2 registration
+                    identity_matrix = np.eye(4)
+                    np.savetxt(gpe.fn_save_mat_path_t2_to_t1_global, identity_matrix, fmt='%.6f')
+                    
+                    # Set this variable to avoid Pylance errors
+                    t2_cropped_img = gpe.t1_neck_trim.data
+                                
             # ------- global T1 to template registration using ASHS pipeline -------
             with self.tm_reg_t1_temp:
 
@@ -483,53 +513,79 @@ class ASHSProcessor:
         
             # ------- Perform the cropping based on the ROIs  ------- 
             with self.tm_reg_t1_t2_local:
-                # Pad the T2 image with world alignment
-                t2_padded_img = pad_image_with_world_alignment_in_memory(t2_cropped_img, [40, 40, 40], [40, 40, 40])
                 
+                if not self.t1_only:
+                
+                    # Pad the T2 image with world alignment
+                    t2_padded_img = pad_image_with_world_alignment_in_memory(t2_cropped_img, [40, 40, 40], [40, 40, 40])
+                    
+                    for side_, lp in lpe.items():
+                                                
+                        # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
+                        scaling_str = self.get_close_to_iso_integer_scaling(t2_cropped_img)
+                                        
+                        # Crop the T2 using the T1 ROI and apply the new spacing
+                        c3d = Convert3D()
+                        c3d.push(t2_padded_img)
+                        c3d.push(t1_roi[side_])
+                        c3d.execute(f'-popas ROI_T1 -as T2 -push ROI_T1 -reslice-matrix {gpe.fn_save_mat_path_t2_to_t1_global} -trim 5mm '
+                                    f'-resample {scaling_str} -as ROI_T2 -dup -push T2 -reslice-identity -swapdim RPI')
+                        lp.t2_patch_hyperres.data = c3d.peek(-1)
+                        roi_t2 = c3d.peek(-2)
+
+                        # Compute local registration between T2 and T1
+                        g.execute(f'-threads {nt} -z -a -dof 6 -ia {gpe.fn_save_mat_path_t2_to_t1_global} -m NMI '
+                                f'-i t2 t1 -gm mask -n 100x50 -o {lp.fn_save_mat_path_t2_to_t1_local} ', 
+                                t2=lp.t2_patch_hyperres.data, t1=gpe.t1_neck_trim.data, mask=roi_t2)
+                        
+                        # Apply the registration to the T1 and resample it into the isotropic space
+                        g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
+                                f'-r {lp.fn_save_mat_path_t2_to_t1_local}', t1_reg_to_t2=None)
+                        lp.t1_patch_warped_hyperres.data = g['t1_reg_to_t2']
+
+                        # For QC purposes, map template all the way to T2 space
+                        g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "
+                                    f"-r {lp.fn_save_mat_path_t2_to_t1_local} {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv",
+                                    template_to_t2=None)
+                
+                else:
+                    
+                    # In T1-only mode, we want to resample the T1 patch to near-isotropic spacing that
+                    # is close to what the nnUNet model was trained on
+                    for side_, lp in lpe.items():
+                        c3d = Convert3D()
+                        c3d.push(t1_roi[side_])
+                        c3d.push(gpe.t1_neck_trim.data)
+                        c3d.execute(f'-popas T1 -trim 5mm -resample-mm {self.t1_only_fake_t2_spacing}mm '
+                                    f'-swapdim RPI -scale 0 -as T2 -dup -push T1 -reslice-identity')
+                        lp.t2_patch_hyperres.data = c3d.peek(-2)
+                        lp.t1_patch_warped_hyperres.data = c3d.peek(-1)
+
+                        # For QC purposes, map template all the way to T2 space
+                        g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "
+                                  f"-r {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv",
+                                  t2=lp.t2_patch_hyperres.data, template_to_t2=None)
+                    
+                        
                 for side_, lp in lpe.items():
-                                            
-                    # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
-                    scaling_str = self.get_close_to_iso_integer_scaling(t2_cropped_img)
-                                    
-                    # Crop the T2 using the T1 ROI and apply the new spacing
-                    c3d = Convert3D()
-                    c3d.push(t2_padded_img)
-                    c3d.push(t1_roi[side_])
-                    c3d.execute(f'-popas ROI_T1 -as T2 -push ROI_T1 -reslice-matrix {gpe.fn_save_mat_path_t2_to_t1_global} -trim 5vox '
-                                f'-resample {scaling_str} -as ROI_T2 -dup -push T2 -reslice-identity -swapdim RPI')
-                    lp.t2_patch_hyperres.data = c3d.peek(-1)
-                    roi_t2 = c3d.peek(-2)
 
                     # Write out the cropped T2 image and create links for nnUNet input
                     copy_or_link_file(lp.t2_patch_hyperres.filename, lp.hl_nnunet_t2_input, 
-                                      create_links=self.create_links, force_overwrite=True, create_dir=True, quiet=True)
+                                    create_links=self.create_links, force_overwrite=True, create_dir=True, quiet=True)
                                     
-                    # Compute local registration between T2 and T1
-                    g.execute(f'-threads {nt} -z -a -dof 6 -ia {gpe.fn_save_mat_path_t2_to_t1_global} -m NMI '
-                            f'-i t2 t1 -gm mask -n 100x50 -o {lp.fn_save_mat_path_t2_to_t1_local} ', 
-                            t2=lp.t2_patch_hyperres.data, t1=gpe.t1_neck_trim.data, mask=roi_t2)
-                    
-                    # Apply the registration to the T1 and resample it into the isotropic space
-                    g.execute(f'-threads {nt} -rf t2 -rm t1 t1_reg_to_t2 '
-                            f'-r {lp.fn_save_mat_path_t2_to_t1_local}', t1_reg_to_t2=None)
-                    lp.t1_patch_warped_hyperres.data = g['t1_reg_to_t2']
-
                     # Write out the cropped T1 and create link for nnUNet input
                     copy_or_link_file(lp.t1_patch_warped_hyperres.filename, lp.hl_nnunet_t1_input, 
-                                      create_links=self.create_links, force_overwrite=True, create_dir=True, quiet=True)
+                                    create_links=self.create_links, force_overwrite=True, create_dir=True, quiet=True)
                     
-                    # For QC purposes, map template all the way to T2 space
-                    g.execute(f"-threads {nt} -rf t2 -rm template_3tt1 template_to_t2 "
-                                f"-r {lp.fn_save_mat_path_t2_to_t1_local} {gpe.fn_template_to_3tt1_affine_matrix},-1 warpinv",
-                                template_to_t2=None)
-
                     # Generate registration QC screenshot
                     generate_ashs_registration_qc(
                         template_img=g['template_to_t2'],
                         t1_to_t2=lp.t1_patch_warped_hyperres.data,
                         t2_img=lp.t2_patch_hyperres.data,
                         output_path=lp.fn_registration_qc,
+                        t1_only=self.t1_only,
                         title=f"{exp.qc_title} Registration QC - {side_.capitalize()}")
+                        
         else:
             print(f"NNUNet input patches already exist for both sides. Skipping registration and cropping steps.")
             
@@ -636,11 +692,19 @@ class ASHSProcessor:
             # Create a new greedy instance for the registration
             g = Greedy3D()
             
-            # Apply resampling to original T2 space for each side
             for side_, lp in exp.lpe.items():
-                g.execute(f'-threads {self.greedy_num_threads} -rf t2 -ri LABEL 0.2vox '
-                            f'-rm final_seg {lp.t2_seg_native.filename} -r ',
-                            t2=exp.gpe.t2_whole_img.data, final_seg=lp.nnunet_seg.data)
+                if not self.t1_only:
+                    # Apply resampling to original T2 space for each side
+                    # Then map it back to the original T2 space using the inverse of the global registration
+                    g.execute(f'-threads {self.greedy_num_threads} -rf t2 -ri LABEL 0.2vox '
+                                f'-rm final_seg {lp.t2_seg_native.filename} -r ',
+                                t2=exp.gpe.t2_whole_img.data, final_seg=lp.nnunet_seg.data)
+                    
+                else:
+                    # Map the T1 segmentation back to the original T1 space
+                    g.execute(f'-threads {self.greedy_num_threads} -rf t1 -ri LABEL 0.2vox '
+                                f'-rm final_seg {lp.t2_seg_native.filename} -r ',
+                                t1=exp.gpe.t1_native.data, final_seg=lp.nnunet_seg.data)
 
                 
                 

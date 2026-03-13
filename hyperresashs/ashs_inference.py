@@ -57,18 +57,23 @@ class HyperASHSInference():
                 self.run_inference_for_one_case(date_path, subject=subject_, date=date_)
     
 
-    def run_inference_for_one_case(self, mprage:str, tse:str, case_path:str, 
+    def run_inference_for_one_case(self, mprage:str, tse:str|None, case_path:str, 
                                    subject:str|None=None, date:str|None=None,
                                    save_intermediates: bool = True, overwrite_existing: bool = False,
                                    create_links: bool = True,
                                    callback: ProgressCallbackType = default_progress_callback, 
                                    device:str = 'auto'):
         
+        # Do we have a TSE at inference? If not, we switch to the T1-ASHS pipeline, which substitutes
+        # an empty image for the TSE and performs other operations slightly differently.
+        t1_only = tse is None
+        
         # Create the ASHS experiment representation
-        exp = ASHSExperimentBase(self.config, case_path, self.nm, subject=subject, date=date)
+        exp = ASHSExperimentBase(self.config, case_path, self.nm, subject=subject, date=date, 
+                                 prefix=f'{subject}_{date}_' if (subject and date) else f'{subject}_' if subject else '')
 
         # Create a preprocessing/registration worker
-        reg = ASHSProcessor(self.config, 
+        reg = ASHSProcessor(self.config, t1_only=t1_only,
                             overwrite_existing=overwrite_existing, 
                             save_intermediates=save_intermediates, 
                             create_links=create_links) 
@@ -79,7 +84,8 @@ class HyperASHSInference():
             
             # Copy or link the raw input images
             for dst, src in [(exp.gpe.t1_native, mprage), (exp.gpe.t2_whole_img, tse)]:        
-                copy_or_link_file(src, dst.filename, create_links=create_links, force_overwrite=overwrite_existing, relative_links=False)
+                if src is not None:
+                    copy_or_link_file(src, dst.filename, create_links=create_links, force_overwrite=overwrite_existing, relative_links=False)
             
             # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
             print('--- HyperResASHS Stage 1: Neck Trim and Registration ---')
@@ -165,6 +171,7 @@ class HyperASHSInference():
                         t2 = lp.t2_patch_hyperres.data,
                         labelset = self.labelset,
                         output_path = lp.fn_segmentation_qc,
+                        t1_only=t1_only,
                         title = f"{exp.qc_title} Segmentation QC - {side_.capitalize()}")
                         
                     # Report being done with part of the nnUNet processing 

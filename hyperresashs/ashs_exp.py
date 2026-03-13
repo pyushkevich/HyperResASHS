@@ -202,6 +202,7 @@ class LocalPipelineElements:
         # Final post-processed segmentation
         self.t2_seg_hyperres = LazyInt16Image(join(case_path, format(nm.final_hyperres_seg)))
         self.t2_seg_native = LazyInt16Image(join(case_path, format(nm.final_native_seg)))
+        self.t1_seg_native = LazyInt16Image(join(case_path, format(nm.final_native_t1space_seg)))
 
         # The input path for INR training is different since INR code expects a certain directory structure
         self.dir_inr_train_input = inr_path
@@ -224,8 +225,8 @@ class LocalPipelineElements:
 class ASHSExperimentBase:
     def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
                  sides=['left', 'right'], subject:str|None=None, date:str|None=None,
-                 inr_path: Dict[str,str]|None=None, 
-                 nnunet_train_id: Dict[str,int]|None=None):
+                 inr_path: Dict[str,str]|None=None, nnunet_train_id: Dict[str,int]|None=None,
+                 prefix:str=''):
         self.config = config
         self.case_path = case_path
         self.inr_path = inr_path
@@ -234,7 +235,7 @@ class ASHSExperimentBase:
 
         self.subject = subject
         self.date = date
-        self.prefix = f'{subject}_{date}_' if (subject and date) else f'{subject}_' if subject else ''
+        self.prefix = prefix
         self.qc_title = f'{subject} - {date}' if (subject and date) else f'{subject}' if subject else ''
 
         self.gpe = GlobalPipelineElements(case_path, nm, prefix=self.prefix)
