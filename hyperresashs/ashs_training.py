@@ -294,7 +294,10 @@ class HyperASHSTraining:
 
             # Execute the registration and preprocessing steps (neck trimming, global and local registration, ROI cropping)
             reg.preprocess(exp)
-            reg.prepare_inr(exp)
+            
+            # Prepare for INR, but only if configured for INR mode
+            reg.prepare_inr(exp, self.config['UPSAMPLING_METHOD'])
+                
             
     def train_inr(self, filter=None, device='cuda', random_seed:int|None=None, batch_size:int|None=None, num_epochs:int|None=None):
         """
@@ -308,6 +311,11 @@ class HyperASHSTraining:
         print('-' * 60)
         print('HyperASHS Train Stage 2: INR segmentation upsampling')
         print('-' * 60)
+        
+        # Check the upsampling method
+        if self.config['UPSAMPLING_METHOD'] != 'INRUpsampling':
+            print(f"Skipping INR training because UPSAMPLING_METHOD is set to {self.config['UPSAMPLING_METHOD']}.")
+            return
         
         # Read the template YAML file
         config_temp = files('hyperresashs').joinpath('config_templates/config_inr_template.yaml')
@@ -417,6 +425,10 @@ class HyperASHSTraining:
             if not lp.t2_patch_hyperres_seg.exists():
                 print(f'INR result missing for case {case_id}: {lp.t2_patch_hyperres_seg.filename}')
                 n_failed += 1
+                continue
+            
+            # If not doing INR upsampling, skip the rest of the checks
+            if self.config['UPSAMPLING_METHOD'] != 'INRUpsampling':
                 continue
             
             # Check that the overlap file exists

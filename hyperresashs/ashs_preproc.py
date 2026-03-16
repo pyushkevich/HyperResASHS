@@ -594,91 +594,111 @@ class ASHSProcessor:
                     attachments={f'{side_.capitalize()} Registration QC': lp.fn_registration_qc for side_, lp in lpe.items()},
                     message=f"Registration and ROI cropping completed in {t_total:.1f} s.")
         
-    def prepare_inr(self, exp:ASHSExperimentBase, callback: ProgressCallbackType = default_progress_callback, progress_range=(0.0, 0.25)):
+    def prepare_inr(self, exp:ASHSExperimentBase, method:str, callback: ProgressCallbackType = default_progress_callback, progress_range=(0.0, 0.25)):
         nt = self.greedy_num_threads
         gpe, lpe = exp.gpe, exp.lpe
         with self.tm_prep_inr:
+            
+            if method == 'INRUpsampling':
 
-            # Use the input segmentation to crop the T2 image at native resolution. How much padding to apply
-            # is not obvious - we want to provide some context, but not too much to keep the computation reasonable
-            for side_, lp in lpe.items():
-                c3d = Convert3D()
-                c3d.execute(f'-threads {nt}')
-                
-                # Crop the primary image. We want to keep its native spacing but use the segmentations' bounds
-                # to trim the image. Since we allow the manual segmentation to not be in the same spacing as the
-                # T2 image we have to first reslice the segmentation into the T2 space, and then use it to crop the T2 image.
-                c3d.push(gpe.t2_whole_img.data)
-                c3d.push(lp.input_seg.data)
-                c3d.execute(f'-trim 5mm -popas S -as T2 -push S -thresh 1 inf 1 0 -reslice-identity -thresh 0.5 inf 1 0 -trim 5mm -as S_T2 -push T2 -reslice-identity -swapdim RPI -as T2P')
-                lp.inr_primary.data = c3d.peek(-1)
-                
-                # Also generate a dummy mask
-                c3d.execute(f'-clear -push T2P -scale 0 -shift 1 -as T2M')
-                lp.inr_primary_mask.data = c3d.peek(-1)
-                
-                # Upsample this image to near-isotropic spacing (this is the INR 'ground truth'?)
-                scale_cmd = self.get_close_to_iso_integer_scaling(lp.inr_primary.data)
-                c3d.execute(f'-clear -push T2P -int 1 -resample {scale_cmd} -as T2GT')
-                lp.inr_primary_gt.data = c3d.peek(-1)
-                
-                # Write out the segmentation and dummy mask
-                c3d.execute(f'-clear -push S -swapdim RPI')
-                lp.inr_primary_seg.data = c3d.peek(-1)
-                
-                # Crop the secondary image. Here we first need to define the ROI in the T1 space
-                # and then use it to crop the T1 image. The Greedy command applies rigid transform
-                # to send the T2 segmentation into the T1 image space.  
-                g = Greedy3D()
-                g.execute(f'-threads {nt} -ri 0 -rf t1 -rm seg seg_in_t1 -r {lp.fn_save_mat_path_t2_to_t1_local},-1', 
-                          t1=gpe.t1_neck_trim.data, seg=lp.input_seg.data, seg_in_t1=None)
-                
-                # Now crop the secondary image using the segmentation
-                c3d.push(gpe.t1_neck_trim.data)
-                c3d.push(g['seg_in_t1'])
-                c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI')
-                t1_native_patch = c3d.peek(-1)
-                
-                # Finally, we should correct the header of the secondary image to incorporate the rigid 
-                # registration, otherwise INR will be confounded by the misalignment between the two modalities.
-                S = get_nifti_sform_matrix(t1_native_patch)
-                M = np.loadtxt(lp.fn_save_mat_path_t2_to_t1_local)
-                S_new = np.linalg.inv(M) @ S
-                set_nifti_sform_matrix(t1_native_patch, S_new)
-                lp.inr_secondary.data = t1_native_patch
-                
-                # Resample the T2 mask into the t1 native patch space
-                c3d.push(lp.inr_secondary.data)
-                c3d.execute(f'-as T1P -push T2M -int 0 -reslice-identity')
-                lp.inr_secondary_mask.data = c3d.peek(-1)
-                
-                # Also generate the target-resolution T1 image
-                c3d.execute(f'-push T2GT -push T1P -int 0 -reslice-identity')
-                lp.inr_secondary_gt.data = c3d.peek(-1)
-                
-                # And finally the mask for the INR inference - perhaps we can in the future 
-                # limit this to just the area around the segmentation, why upsample whole patch?
-                c3d.execute(f'-push T2GT -scale 0 -shift 1')
-                lp.inr_inference_mask.data = c3d.peek(-1)
-                
-                # Populate the links for the INR training directory
-                if lp.dir_inr_train_input is not None:
-                    d_inr:str = lp.dir_inr_train_input
-                    os.makedirs(d_inr, exist_ok=True)
+                # Use the input segmentation to crop the T2 image at native resolution. How much padding to apply
+                # is not obvious - we want to provide some context, but not too much to keep the computation reasonable
+                for side_, lp in lpe.items():
+                    c3d = Convert3D()
+                    c3d.execute(f'-threads {nt}')
                     
-                    # Create all the links
-                    for dst, src in {
-                        't2_LR': lp.inr_primary.filename,               # Native T2 patch
-                        't2_seg_LR': lp.inr_primary_seg.filename,       # Native T2 segmentation
-                        't2_mask_LR': lp.inr_primary_mask.filename,     # All ones
-                        't1_LR': lp.inr_secondary.filename,             # Native T1 match, header adjusted
-                        't1_seg_LR': lp.inr_secondary_mask.filename,    # Same as T1 mask below
-                        't1_mask_LR': lp.inr_secondary_mask.filename,   # Region of overlap T2 on T1
-                        't2': lp.inr_primary_gt.filename,               # Resampled T2 patch at target resolution (INR GT)
-                        't1': lp.inr_secondary_gt.filename,             # Resampled T1 patch at target resolution (INR GT)
-                        'brainmask': lp.inr_inference_mask.filename     # Inferencing mask
-                    }.items():
-                        copy_or_link_file(src, join(lp.dir_inr_train_input, f'{side_}_{dst}.nii.gz'), create_links=True)
+                    # Crop the primary image. We want to keep its native spacing but use the segmentations' bounds
+                    # to trim the image. Since we allow the manual segmentation to not be in the same spacing as the
+                    # T2 image we have to first reslice the segmentation into the T2 space, and then use it to crop the T2 image.
+                    c3d.push(gpe.t2_whole_img.data)
+                    c3d.push(lp.input_seg.data)
+                    c3d.execute(f'-trim 5mm -popas S -as T2 -push S -thresh 1 inf 1 0 -reslice-identity -thresh 0.5 inf 1 0 -trim 5mm -as S_T2 -push T2 -reslice-identity -swapdim RPI -as T2P')
+                    lp.inr_primary.data = c3d.peek(-1)
+                    
+                    # Also generate a dummy mask
+                    c3d.execute(f'-clear -push T2P -scale 0 -shift 1 -as T2M')
+                    lp.inr_primary_mask.data = c3d.peek(-1)
+                    
+                    # Upsample this image to near-isotropic spacing (this is the INR 'ground truth'?)
+                    scale_cmd = self.get_close_to_iso_integer_scaling(lp.inr_primary.data)
+                    c3d.execute(f'-clear -push T2P -int 1 -resample {scale_cmd} -as T2GT')
+                    lp.inr_primary_gt.data = c3d.peek(-1)
+                    
+                    # Write out the segmentation and dummy mask
+                    c3d.execute(f'-clear -push S -swapdim RPI')
+                    lp.inr_primary_seg.data = c3d.peek(-1)
+                    
+                    # Crop the secondary image. Here we first need to define the ROI in the T1 space
+                    # and then use it to crop the T1 image. The Greedy command applies rigid transform
+                    # to send the T2 segmentation into the T1 image space.  
+                    g = Greedy3D()
+                    g.execute(f'-threads {nt} -ri 0 -rf t1 -rm seg seg_in_t1 -r {lp.fn_save_mat_path_t2_to_t1_local},-1', 
+                            t1=gpe.t1_neck_trim.data, seg=lp.input_seg.data, seg_in_t1=None)
+                    
+                    # Now crop the secondary image using the segmentation
+                    c3d.push(gpe.t1_neck_trim.data)
+                    c3d.push(g['seg_in_t1'])
+                    c3d.execute(f'-trim 5mm -popas S -insert S 1 -reslice-identity -swapdim RPI')
+                    t1_native_patch = c3d.peek(-1)
+                    
+                    # Finally, we should correct the header of the secondary image to incorporate the rigid 
+                    # registration, otherwise INR will be confounded by the misalignment between the two modalities.
+                    S = get_nifti_sform_matrix(t1_native_patch)
+                    M = np.loadtxt(lp.fn_save_mat_path_t2_to_t1_local)
+                    S_new = np.linalg.inv(M) @ S
+                    set_nifti_sform_matrix(t1_native_patch, S_new)
+                    lp.inr_secondary.data = t1_native_patch
+                    
+                    # Resample the T2 mask into the t1 native patch space
+                    c3d.push(lp.inr_secondary.data)
+                    c3d.execute(f'-as T1P -push T2M -int 0 -reslice-identity')
+                    lp.inr_secondary_mask.data = c3d.peek(-1)
+                    
+                    # Also generate the target-resolution T1 image
+                    c3d.execute(f'-push T2GT -push T1P -int 0 -reslice-identity')
+                    lp.inr_secondary_gt.data = c3d.peek(-1)
+                    
+                    # And finally the mask for the INR inference - perhaps we can in the future 
+                    # limit this to just the area around the segmentation, why upsample whole patch?
+                    c3d.execute(f'-push T2GT -scale 0 -shift 1')
+                    lp.inr_inference_mask.data = c3d.peek(-1)
+                    
+                    # Populate the links for the INR training directory
+                    if lp.dir_inr_train_input is not None:
+                        d_inr:str = lp.dir_inr_train_input
+                        os.makedirs(d_inr, exist_ok=True)
+                        
+                        # Create all the links
+                        for dst, src in {
+                            't2_LR': lp.inr_primary.filename,               # Native T2 patch
+                            't2_seg_LR': lp.inr_primary_seg.filename,       # Native T2 segmentation
+                            't2_mask_LR': lp.inr_primary_mask.filename,     # All ones
+                            't1_LR': lp.inr_secondary.filename,             # Native T1 match, header adjusted
+                            't1_seg_LR': lp.inr_secondary_mask.filename,    # Same as T1 mask below
+                            't1_mask_LR': lp.inr_secondary_mask.filename,   # Region of overlap T2 on T1
+                            't2': lp.inr_primary_gt.filename,               # Resampled T2 patch at target resolution (INR GT)
+                            't1': lp.inr_secondary_gt.filename,             # Resampled T1 patch at target resolution (INR GT)
+                            'brainmask': lp.inr_inference_mask.filename     # Inferencing mask
+                        }.items():
+                            copy_or_link_file(src, join(lp.dir_inr_train_input, f'{side_}_{dst}.nii.gz'), create_links=True)
+                            
+            elif method == 'None':
+                # Simply resample the manual segmentation into the patch space, assuming that the spacing
+                # is already isotropic and matches the T2 patch
+                for side_, lp in lpe.items():
+                    
+                    # Check spacing
+                    t2_spacing = lp.t2_patch_hyperres.data.GetSpacing()
+                    seg_spacing = lp.input_seg.data.GetSpacing()
+                    if not np.allclose(t2_spacing, seg_spacing, atol=1e-3):
+                        raise ValueError(f"Spacing of T2 patch {t2_spacing} and input segmentation {seg_spacing} do not match. Cannot proceed with method 'None'.")
+                    
+                    c3d = Convert3D()
+                    c3d.execute(f'-threads {nt}')
+                    c3d.push(lp.t2_patch_hyperres.data)
+                    c3d.push(lp.input_seg.data)
+                    c3d.execute(f'-int 0 -reslice-identity -swapdim RPI')
+                    lp.t2_patch_hyperres_seg.data = c3d.peek(-1) 
                 
         callback(progress=1.0, progress_range=progress_range, 
                  message=f"INR preprocessing cropping completed in {self.tm_prep_inr.total:.1f} s.")
