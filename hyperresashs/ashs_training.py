@@ -210,7 +210,7 @@ class HyperASHSTraining:
             'EXP_NUM': None,
             'MODEL_NAME': None,
             'UPSAMPLING_METHOD': 'INRUpsampling',
-            'TRAINER': 'ModAugUNetTrainer',
+            'TRAINER': 'ModAugPartialCoverageUNetTrainer',
             'CONDITION': 'in_vivo',
             'ASHS_TSE_REGION_CROP': ASHSProcessor.get_config_defaults()['ASHS_TSE_REGION_CROP'],
         }
