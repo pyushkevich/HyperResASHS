@@ -447,7 +447,7 @@ class HyperASHSTraining:
             with open(ovl_file, 'r') as f:
                 ovl_data = json.load(f)
                 total_dice = ovl_data.get('total_dice', 0)
-                if total_dice < 0.9:
+                if total_dice < self.config.get('INR_QC_MIN_DICE', 0.9):
                     print(f'INR upsampling does not match input segmentation for case {case_id}: {total_dice:.4f}. '
                           f'Try rerunning stage 2 (-s 2) for this case (-F {case_id.replace("_nodate_","_")}) with a different random seed (-R).')
                     n_failed += 1
