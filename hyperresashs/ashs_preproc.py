@@ -195,9 +195,9 @@ class SegmentationLabelMap():
                     parts = line.split()
                     label_id = int(parts[0])
                     color = list(map(int, parts[1:4]))
-                    alpha = int(parts[4])
+                    alpha, vis, vis_3d = int(parts[4]), int(parts[5]), int(parts[6])
                     name = ' '.join(parts[7:]).strip('"')
-                    label_dict[label_id] = {'color': color, 'alpha': alpha, 'name': name}
+                    label_dict[label_id] = {'color': color, 'alpha': alpha, 'vis': vis, 'vis_3d': vis_3d, 'name': name}
         return label_dict
     
     def _parse_nnunet_dataset_json(self, fn_dataset_json_file: str) -> Dict[int, Dict[str, Any]]:
@@ -210,10 +210,10 @@ class SegmentationLabelMap():
             if name == f'empty_label_{label_id}':
                 continue  # Skip empty labels
             elif name == 'background':
-                label_dict[label_id] = {'color': [0.0, 0.0, 0.0], 'alpha': 0.0, 'name': name}  # Background is transparent
+                label_dict[label_id] = {'color': [0.0, 0.0, 0.0], 'alpha': 0.0, 'vis': 0, 'vis_3d': 0, 'name': name }  # Background is transparent
             else:
                 color = [int(c*255) for c in cmap(label_id % 20)[:3]]
-                label_dict[label_id] = {'color': color, 'alpha': 1.0, 'name': name}  
+                label_dict[label_id] = {'color': color, 'alpha': 1.0, 'vis': 1, 'vis_3d': 1, 'name': name}  
         
         return label_dict
     
@@ -222,9 +222,9 @@ class SegmentationLabelMap():
             f.write(_itksnap_label_file_preamble.strip() + '\n')
             for label_id, info in self.labels.items():
                 color = info['color']
-                alpha = info['alpha']
+                alpha, vis, vis_3d = info['alpha'], info['vis'], info['vis_3d']
                 name = info['name']
-                f.write(f'{label_id:4d} {color[0]:4d} {color[1]:4d} {color[2]:4d}\t{alpha:2d} {alpha:2d} {alpha:2d}\t"{name}"\n')
+                f.write(f'{label_id:4d} {color[0]:4d} {color[1]:4d} {color[2]:4d}\t{alpha:2d} {vis:2d} {vis_3d:2d}\t"{name}"\n')
                 
     def to_nnunet_dict_with_contiguous_labels(self):
         nnunet_labels = {'background': 0}
@@ -426,7 +426,7 @@ class ASHSProcessor:
         raise ValueError(f"Unrecognized format for TARGET_SPACING: {arg}. Must be a single number or a string of the form '0.4x0.4x0.4'.")
     
     
-    def _get_upsampling_scaling_command(self, image: sitk.Image) -> str:
+    def _get_upsampling_scaling_command(self, image: sitk.Image | None) -> str:
         """
         Generate a c3d scaling command for upsampling this image to the target spacing. The command
         depends on the configuration parameters specified for upsampling in the config file. 
@@ -439,7 +439,7 @@ class ASHSProcessor:
         if self.t1_only:
             return f'-resample-mm {self.t1_only_fake_t2_spacing}mm'
         
-        if self.target_spacing == 0.0:
+        if self.target_spacing == 0.0 and image is not None:
             # If target spacing is not specified, use the close-to-isotropic integer scaling
             return f'-resample {self._get_close_to_iso_integer_scaling(image)}'
         
@@ -448,7 +448,7 @@ class ASHSProcessor:
         
         if self.target_spacing.size == 3:
             return f'-resample-mm {"x".join([str(x) for x in self.target_spacing[0]])}mm'
-        
+                
         raise ValueError(f"Invalid TARGET_SPACING: {self.target_spacing}. Must be a single number or a string of the form '0.4x0.4x0.4'.")
             
         
@@ -566,9 +566,10 @@ class ASHSProcessor:
             # ------- Perform the cropping based on the ROIs  ------- 
             with self.tm_reg_t1_t2_local:
                 
-                # Determine the target spacing for the T2 upsampling (replace the largest spacing with the second largest one)
-                upsample_cmd = self._get_upsampling_scaling_command(gpe.t2_whole_img.data)
                 if not self.t1_only:
+                    
+                    # Determine upsampling command for T2 image based on the target spacing
+                    upsample_cmd = self._get_upsampling_scaling_command(gpe.t2_whole_img.data)
                 
                     # Pad the T2 image with world alignment
                     t2_padded_img = pad_image_with_world_alignment_in_memory(gpe.t2_whole_img.data, [40, 40, 40], [40, 40, 40])
@@ -601,6 +602,9 @@ class ASHSProcessor:
                 
                 else:
                     
+                    # Determine upsampling command for T2 image based on the target spacing
+                    upsample_cmd = self._get_upsampling_scaling_command(None)
+                
                     # In T1-only mode, we want to resample the T1 patch to near-isotropic spacing that
                     # is close to what the nnUNet model was trained on
                     for side_, lp in lpe.items():

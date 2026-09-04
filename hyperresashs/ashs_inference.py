@@ -218,6 +218,9 @@ class HyperASHSInference():
         print(f'  Time in local T1/T2 reg: {reg.tm_reg_t1_t2_local.total:.2f}s')
         print(f'  Time in nnUNet: {tm_nnunet.total:.2f}s')
         print(f'  Total time: {tm_all.total:.2f}s')
+        
+        # Return the experiment object for further processing if desired
+        return exp
 
     def execute(self, subject_id=None):
         # --- run inference
