@@ -202,7 +202,6 @@ class LocalPipelineElements:
         # Final post-processed segmentation
         self.t2_seg_hyperres = LazyInt16Image(join(case_path, format(nm.final_hyperres_seg)))
         self.t2_seg_native = LazyInt16Image(join(case_path, format(nm.final_native_seg)))
-        self.t1_seg_native = LazyInt16Image(join(case_path, format(nm.final_native_t1space_seg)))
 
         # The input path for INR training is different since INR code expects a certain directory structure
         self.dir_inr_train_input = inr_path
