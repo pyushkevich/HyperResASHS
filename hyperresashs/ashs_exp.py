@@ -146,9 +146,10 @@ class LazyInt16Image(LazyImage):
  
 # This class stores the images generated using processing
 class GlobalPipelineElements:
-    def __init__(self, case_path:str, nm: SimpleNamespace, prefix:str=''):
+    def __init__(self, case_path:str, nm: SimpleNamespace, prefix:str='', bids_kw = {}):
 
-        format = lambda fn: fn.format(prefix=prefix)
+        # Formatter for the filenames
+        format = lambda fn: fn.format(prefix=prefix, **bids_kw)
 
         # Registration matrices
         self.fn_save_mat_path_t2_to_t1_global = join(case_path, format(nm.t1_to_t2_affine_mat))
@@ -176,9 +177,13 @@ class TemplatePipelineElements:
 
 class LocalPipelineElements:
     def __init__(self, case_path:str, side:str, dataset_id: str, nm: SimpleNamespace, prefix:str='',
-                 inr_path: str|None=None, nnunet_train_id: int|None = None):
+                 inr_path: str|None=None, nnunet_train_id: int|None = None, bids_kw = {}):
+        
+        # Define the bids field that depends on the side 
+        bids_kw['bids_hemi'] = 'hemi-L_' if side == 'left' else 'hemi-R_' if side == 'right' else ''
 
-        format = lambda fn: fn.format(side=side, dataset=dataset_id, prefix=prefix)
+        # Formatter for the filenames
+        format = lambda fn: fn.format(side=side, dataset=dataset_id, prefix=prefix, **bids_kw)
 
         # Folders
         # self.dir_local = join(case_path, test_folder, side)
@@ -225,7 +230,7 @@ class ASHSExperimentBase:
     def __init__(self, config: Dict[str, Any], case_path:str, nm: SimpleNamespace, 
                  sides=['left', 'right'], subject:str|None=None, date:str|None=None,
                  inr_path: Dict[str,str]|None=None, nnunet_train_id: Dict[str,int]|None=None,
-                 prefix:str=''):
+                 prefix:str='', bids_kw = {}):
         self.config = config
         self.case_path = case_path
         self.inr_path = inr_path
@@ -237,8 +242,8 @@ class ASHSExperimentBase:
         self.prefix = prefix
         self.qc_title = f'{subject} - {date}' if (subject and date) else f'{subject}' if subject else ''
 
-        self.gpe = GlobalPipelineElements(case_path, nm, prefix=self.prefix)
-        self.lpe = { side: LocalPipelineElements(case_path, side, self.dataset_id, nm, prefix=self.prefix,
+        self.gpe = GlobalPipelineElements(case_path, nm, prefix=self.prefix, bids_kw=bids_kw)
+        self.lpe = { side: LocalPipelineElements(case_path, side, self.dataset_id, nm, prefix=self.prefix, bids_kw=bids_kw,
                                                  inr_path=inr_path[side] if inr_path is not None else None,
                                                  nnunet_train_id=nnunet_train_id[side] if nnunet_train_id is not None else None) 
                     for side in sides }

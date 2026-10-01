@@ -60,6 +60,8 @@ def main():
                             help='Path to T2-weighted image. Omit to run in T1-only ASHS mode.')
     run_parser.add_argument('-I', '--subject-id', type=str, default=None,
                             help='Subject ID for this experiment. If specified, outputs will be prefixed with the subject ID.')
+    run_parser.add_argument('-S', '--session-id', type=str, default=None,
+                            help='Session ID for this experiment. If specified, outputs will be prefixed with the session ID.')
     run_parser.add_argument('--reg-t1t2', type=str, default=None,
                             help='Provide the .mat file for the transform between the T1w and T2w image to use as '
                                  'the global T1w to T2w registration. The transform must be in the format used by ITK-SNAP, '

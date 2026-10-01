@@ -39,12 +39,12 @@ nnunet_input_dir: "nnunet/{dataset}/{side}/input"
 nnunet_output_dir: "nnunet/{dataset}/{side}/output"
 
 # ------- Final segmentation outputs (BIDS format) -------
-final_hyperres_seg: "final/{prefix}{hemi}space-orig_atlas-{atlas}_res-high_dseg.nii.gz"
-final_hyperres_sidecar: "final/{prefix}{hemi}space-orig_atlas-{atlas}_res-high_dseg.json"
-final_native_seg:   "final/{prefix}{hemi}space-orig_atlas-{atlas}_res-native_dseg.nii.gz"
-final_native_sidecar:   "final/{prefix}{hemi}space-orig_atlas-{atlas}_res-native_dseg.nii.gz"
-final_volumes_csv:  "final/{prefix}space-orig_atlas-{atlas}_res-high_volumes.tsv"
-final_labelfile_itksnap: "final/{prefix}atlas-{atlas}_desc-itksnap_labels.txt"
+final_hyperres_seg: "final/{bids_prefix}{bids_hemi}space-orig_atlas-{bids_atlas}_res-high_dseg.nii.gz"
+final_hyperres_sidecar: "final/{bids_prefix}{bids_hemi}space-orig_atlas-{bids_atlas}_res-high_dseg.json"
+final_native_seg:   "final/{bids_prefix}{bids_hemi}space-orig_atlas-{bids_atlas}_res-native_dseg.nii.gz"
+final_native_sidecar:   "final/{bids_prefix}{bids_hemi}space-orig_atlas-{bids_atlas}_res-native_dseg.nii.gz"
+final_volumes_csv:  "final/{bids_prefix}space-orig_atlas-{bids_atlas}_res-high_volumes.tsv"
+final_labelfile_itksnap: "final/{bids_prefix}atlas-{bids_atlas}_desc-itksnap_labels.txt"
 
 # ------- QC images -------
 registration_qc: "qc/{prefix}registration_qc_{side}.png"
