@@ -5,6 +5,7 @@ from .ashs_preproc import ASHSProcessor, generate_ashs_segmentation_qc, Progress
 from .ashs_cleanup import ashs_cleanup
 from .utils.tool import copy_or_link_file, nnunet_configure_device
 import yaml
+import json
 from types import SimpleNamespace
 import torch
 import time
@@ -32,7 +33,16 @@ class HyperASHSInference():
         self.nnunet_model = join(self.config.get('ATLAS_PATH'), self.nnunet_trid)
         self.dataset_json_path = join(self.nnunet_model, 'dataset.json')
         self.sides = config.get('SIDES', ['left', 'right'])
-       
+
+        # Voxel spacing the nnU-Net model was trained at, used to upsample coarse inputs to the
+        # model's resolution. plans.json stores it in transposed nnU-Net order, so undo the transpose
+        # and reverse from numpy (z,y,x) to ITK (x,y,z) order to match the RPI patches we create.
+        with open(join(self.nnunet_model, 'plans.json')) as f:
+            plans = json.load(f)
+        sp = plans['configurations']['3d_fullres']['spacing']
+        sp_npy = [sp[i] for i in plans['transpose_backward']]
+        self.model_spacing = np.array(sp_npy[::-1])
+
         # Number of threads for Greedy
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
         
@@ -78,7 +88,8 @@ class HyperASHSInference():
 
         # Create a preprocessing/registration worker
         reg = ASHSProcessor(self.config, t1_only=t1_only,
-                            overwrite_existing=overwrite_existing, 
+                            model_spacing=self.model_spacing,
+                            overwrite_existing=overwrite_existing,
                             save_intermediates=save_intermediates, 
                             create_links=create_links) 
 

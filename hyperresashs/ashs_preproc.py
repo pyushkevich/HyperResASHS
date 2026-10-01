@@ -375,7 +375,8 @@ def default_progress_callback(progress: float|None=None,
         
 class ASHSProcessor:
     """Common code for preprocessing T2/T1 pairs to generate ROIs for inference/training"""
-    def __init__(self, config, t1_only=False, training_mode=False, overwrite_existing=False, save_intermediates=True, create_links=True):
+    def __init__(self, config, t1_only=False, training_mode=False, overwrite_existing=False, save_intermediates=True, create_links=True,
+                 model_spacing: np.ndarray | None = None):
         self.training_mode = training_mode
         self.overwrite_existing = overwrite_existing
         self.save_intermediates = save_intermediates
@@ -383,7 +384,8 @@ class ASHSProcessor:
         self.t1_only = t1_only
         self.upsampling = config.get('UPSAMPLING_METHOD', 'None') != 'None'
         self.target_spacing = self._read_target_spacing(config.get('TARGET_SPACING', 0.0))
-        self.t1_only_fake_t2_spacing = config.get('T1_ONLY_FAKE_T2_SPACING', 0.4)
+        self.model_spacing = model_spacing
+        self.model_spacing_ratio_threshold = config.get('MODEL_SPACING_RATIO_THRESHOLD', 1.5)
         self.t2_cropping = config.get('ASHS_TSE_REGION_CROP', ASHSProcessor.get_config_defaults()['ASHS_TSE_REGION_CROP'])
         self.greedy_num_threads = config.get('GREEDY_NUM_THREADS', 0)
         self.sides = config.get('SIDES', ['left', 'right'])
@@ -426,21 +428,46 @@ class ASHSProcessor:
         raise ValueError(f"Unrecognized format for TARGET_SPACING: {arg}. Must be a single number or a string of the form '0.4x0.4x0.4'.")
     
     
+    def _get_model_spacing_in_image_axes(self, image: sitk.Image) -> str:
+        """
+        The model spacing is in the axis order of the RPI-oriented patches nnU-Net was trained on,
+        but resampling happens before the patch is reoriented to RPI. Reorder the model spacing so
+        that each image axis gets the spacing of the anatomical (R-L, P-A, I-S) axis it is closest to.
+        """
+        direction = np.abs(np.array(image.GetDirection()).reshape(3, 3))
+        spacing = [self.model_spacing[np.argmax(direction[:, i])] for i in range(3)]
+        return 'x'.join([f'{s:.6f}' for s in spacing])
+
+
     def _get_upsampling_scaling_command(self, image: sitk.Image | None) -> str:
         """
         Generate a c3d scaling command for upsampling this image to the target spacing. The command
         depends on the configuration parameters specified for upsampling in the config file. 
-        If target spacing is not specified, a close-to-isotropic integer scaling will be used. 
-        If T1-only mode is used, the T1 image will be upsampled to a fake isotropic spacing specified by T1_ONLY_FAKE_T2_SPACING.
+        If target spacing is not specified, a close-to-isotropic integer scaling will be used, unless
+        the model spacing is known (inference) and the image's finest spacing is coarser than the model's
+        finest spacing by more than MODEL_SPACING_RATIO_THRESHOLD, in which case the image is resampled
+        to the model spacing.
+        If T1-only mode is used, the T1 image will be upsampled to the model spacing.
         """
         if self.upsampling is False:
             return ''
-        
+
         if self.t1_only:
-            return f'-resample-mm {self.t1_only_fake_t2_spacing}mm'
-        
+            if self.model_spacing is None or image is None:
+                raise ValueError("T1-only mode requires the model spacing and the T1 image to determine the patch resolution.")
+            return f'-resample-mm {self._get_model_spacing_in_image_axes(image)}mm'
+
         if self.target_spacing == 0.0 and image is not None:
-            # If target spacing is not specified, use the close-to-isotropic integer scaling
+            # If the image is much coarser than the model, resample it to the model's spacing so that
+            # the hyper-resolution segmentation comes out at the resolution the model was trained at
+            if self.model_spacing is not None:
+                ratio = np.min(image.GetSpacing()) / np.min(self.model_spacing)
+                if ratio > self.model_spacing_ratio_threshold:
+                    spc_str = self._get_model_spacing_in_image_axes(image)
+                    print(f'Input spacing is {ratio:.2f} times coarser than model spacing, resampling to model spacing {spc_str}mm')
+                    return f'-resample-mm {spc_str}mm'
+
+            # Otherwise use the close-to-isotropic integer scaling
             return f'-resample {self._get_close_to_iso_integer_scaling(image)}'
         
         if self.target_spacing.size == 1:
@@ -603,7 +630,7 @@ class ASHSProcessor:
                 else:
                     
                     # Determine upsampling command for T2 image based on the target spacing
-                    upsample_cmd = self._get_upsampling_scaling_command(None)
+                    upsample_cmd = self._get_upsampling_scaling_command(gpe.t1_neck_trim.data)
                 
                     # In T1-only mode, we want to resample the T1 patch to near-isotropic spacing that
                     # is close to what the nnUNet model was trained on
