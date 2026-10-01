@@ -204,8 +204,8 @@ class HyperASHSInference():
             # Compute and export CSV of structures in the segmentations
             vols = { 'side': [], 'subfield': [], 'volume': [] }
             for side_, lp in exp.lpe.items():
-                seg = sitk.GetArrayFromImage(lp.nnunet_seg.data)
-                voxel_size = np.prod(lp.nnunet_seg.data.GetSpacing())
+                seg = sitk.GetArrayFromImage(lp.t2_seg_hyperres.data)
+                voxel_size = np.prod(lp.t2_seg_hyperres.data.GetSpacing())
                 for label_id, label_data in self.labelset.labels.items():
                     if label_id != 0:
                         vols['side'].append(side_)

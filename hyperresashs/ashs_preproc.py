@@ -800,13 +800,13 @@ class ASHSProcessor:
                     # Then map it back to the original T2 space using the inverse of the global registration
                     g.execute(f'-threads {self.greedy_num_threads} -rf t2 -ri LABEL 0.2vox '
                                 f'-rm final_seg {lp.t2_seg_native.filename} -r ',
-                                t2=exp.gpe.t2_whole_img.data, final_seg=lp.nnunet_seg.data)
+                                t2=exp.gpe.t2_whole_img.data, final_seg=lp.t2_seg_hyperres.data)
                     
                 else:
                     # Map the T1 segmentation back to the original T1 space
                     g.execute(f'-threads {self.greedy_num_threads} -rf t1 -ri LABEL 0.2vox '
                                 f'-rm final_seg {lp.t2_seg_native.filename} -r ',
-                                t1=exp.gpe.t1_native.data, final_seg=lp.nnunet_seg.data)
+                                t1=exp.gpe.t1_native.data, final_seg=lp.t2_seg_hyperres.data)
 
                 
                 
