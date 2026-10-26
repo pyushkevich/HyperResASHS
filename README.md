@@ -6,7 +6,7 @@
 
 ## HyperResASHS User Documentation
 
-Please visit [https://ashs.itksnap.org] for end-user documentation, including running HyperResASHS in ITK-SNAP.
+Please visit https://ashs.itksnap.org for end-user documentation, including running HyperResASHS in ITK-SNAP.
 
 ## Overview
 
